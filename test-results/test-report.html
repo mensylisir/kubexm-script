@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>KubeXM Test Report</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h1 { color: #333; }
+    .summary { background: #f0f0f0; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+    .pass { color: green; }
+    .fail { color: red; }
+    .skip { color: orange; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background-color: #4CAF50; color: white; }
+  </style>
+</head>
+<body>
+  <h1>KubeXM Test Report</h1>
+
+  <div class="summary">
+    <h2>Summary</h2>
+    <p><strong>Total Tests:</strong> 81</p>
+    <p><strong class="pass">Passed:</strong> 73</p>
+    <p><strong class="fail">Failed:</strong> 0</p>
+    <p><strong class="skip">Skipped:</strong> 8</p>
+    <p><strong>Success Rate:</strong> 90.12%</p>
+    <p><strong>Generated:</strong> 2026年 04月 17日 星期五 22:19:01 CST</p>
+  </div>
+
+  <h2>Test Log</h2>
+  <pre>KubeXM Test Suite - 2026年 04月 17日 星期五 22:18:59 CST
+=================================
+
+Running: Scenarios - List all scenarios
+PASS: Scenarios - List all scenarios - 
+Running: Scenarios - Validate scenario
+PASS: Scenarios - Validate scenario - 
+Running: Scenarios - Get packages
+PASS: Scenarios - Get packages - 
+Running: Scenarios - Get images
+PASS: Scenarios - Get images - 
+Running: Scenarios - Get binaries
+PASS: Scenarios - Get binaries - 
+SKIP: Build Docker - Help command - Legacy script (broken path calculation)
+SKIP: Build Docker - Show OS list - Legacy script (broken path calculation)
+SKIP: Build Packages - Help command - Legacy script (broken path calculation)
+SKIP: Build Packages - Script syntax - Legacy script (broken path calculation)
+SKIP: Build ISO - Help command - Legacy script (broken path calculation)
+SKIP: Build ISO - Create structure - Legacy script (broken path calculation)
+Running: Install - Script syntax
+PASS: Install - Script syntax - 
+Running: Install - Help text available
+PASS: Install - Help text available - 
+Running: Config - Get offline enabled
+PASS: Config - Get offline enabled - 
+Running: Config - Get OS list
+PASS: Config - Get OS list - 
+Running: Domain - Normalize etcd external->exists
+[WARN] deprecated value 'external' normalized to 'exists'
+PASS: Domain - Normalize etcd external->exists - 
+Running: Domain - Normalize lb existing->exists
+[WARN] deprecated value 'existing' normalized to 'exists'
+PASS: Domain - Normalize lb existing->exists - 
+Running: Domain - Normalize lb kubexm_kh->kubexm-kh
+[WARN] deprecated value 'kubexm_kh' normalized to 'kubexm-kh'
+PASS: Domain - Normalize lb kubexm_kh->kubexm-kh - 
+Running: Domain - Normalize lb kubexm_kn->kubexm-kn
+[WARN] deprecated value 'kubexm_kn' normalized to 'kubexm-kn'
+PASS: Domain - Normalize lb kubexm_kn->kubexm-kn - 
+Running: Domain - Strategy kubeadm-exists valid
+PASS: Domain - Strategy kubeadm-exists valid - 
+Running: Domain - Strategy kubexm-kubeadm valid
+PASS: Domain - Strategy kubexm-kubeadm valid - 
+Running: Domain - LB exists mode accepts exists type
+PASS: Domain - LB exists mode accepts exists type - 
+Running: Domain - LB external rejects exists type
+PASS: Domain - LB external rejects exists type - 
+Running: Cases - Domain semantics
+[WARN] deprecated value 'external' normalized to 'exists'
+[WARN] deprecated value 'existing' normalized to 'exists'
+[WARN] deprecated value 'kubexm_kh' normalized to 'kubexm-kh'
+[WARN] deprecated value 'kubexm_kn' normalized to 'kubexm-kn'
+PASS: Cases - Domain semantics - 
+Running: Cases - Strategy matrix
+PASS: Cases - Strategy matrix - 
+Running: Cases - LoadBalancer matrix
+PASS: Cases - LoadBalancer matrix - 
+Running: Cases - Step idempotency
+PASS: Cases - Step idempotency - 
+Running: Cases - Connector host validation (Bug 1 fix)
+PASS: Cases - Connector host validation (Bug 1 fix) - 
+Running: Cases - Step registry underscore→dot + auto-discovery (Bug 2 fix)
+PASS: Cases - Step registry underscore→dot + auto-discovery (Bug 2 fix) - 
+Running: Cases - Architecture layer boundaries
+PASS: Cases - Architecture layer boundaries - 
+Running: Cases - Config role members (Bug 3 fix)
+PASS: Cases - Config role members (Bug 3 fix) - 
+Running: Templates - isolinux.cfg template exists
+PASS: Templates - isolinux.cfg template exists - 
+Running: Templates - grub.cfg template exists
+PASS: Templates - grub.cfg template exists - 
+Running: Templates - repo templates exist
+PASS: Templates - repo templates exist - 
+Running: Templates - service templates exist
+PASS: Templates - service templates exist - 
+SKIP: Docker - Docker daemon running - Docker not available or daemon not running
+SKIP: Docker - Build Dockerfile templates - Docker not available or daemon not running
+Running: Templates - Render isolinux.cfg
+PASS: Templates - Render isolinux.cfg - 
+Running: Templates - Render repo config
+PASS: Templates - Render repo config - 
+Running: Scenarios - Calculate packages for all scenarios
+PASS: Scenarios - Calculate packages for all scenarios - 
+Running: Scenario - Validate kubeadm-stacked-none-none
+PASS: Scenario - Validate kubeadm-stacked-none-none - 
+Running: Scenario - Get packages for kubeadm-stacked-none-none
+PASS: Scenario - Get packages for kubeadm-stacked-none-none - 
+Running: Scenario - Get images for kubeadm-stacked-none-none
+PASS: Scenario - Get images for kubeadm-stacked-none-none - 
+Running: Scenario - Get binaries for kubeadm-stacked-none-none
+PASS: Scenario - Get binaries for kubeadm-stacked-none-none - 
+Running: Scenario - Get description for kubeadm-stacked-none-none
+PASS: Scenario - Get description for kubeadm-stacked-none-none - 
+Running: Scenario - Get complexity for kubeadm-stacked-none-none
+PASS: Scenario - Get complexity for kubeadm-stacked-none-none - 
+Running: Scenario - Validate kubeadm-stacked-internal-haproxy
+PASS: Scenario - Validate kubeadm-stacked-internal-haproxy - 
+Running: Scenario - Get packages for kubeadm-stacked-internal-haproxy
+PASS: Scenario - Get packages for kubeadm-stacked-internal-haproxy - 
+Running: Scenario - Get images for kubeadm-stacked-internal-haproxy
+PASS: Scenario - Get images for kubeadm-stacked-internal-haproxy - 
+Running: Scenario - Get binaries for kubeadm-stacked-internal-haproxy
+PASS: Scenario - Get binaries for kubeadm-stacked-internal-haproxy - 
+Running: Scenario - Get description for kubeadm-stacked-internal-haproxy
+PASS: Scenario - Get description for kubeadm-stacked-internal-haproxy - 
+Running: Scenario - Get complexity for kubeadm-stacked-internal-haproxy
+PASS: Scenario - Get complexity for kubeadm-stacked-internal-haproxy - 
+Running: Scenario - Validate kubeadm-external-external-nginx
+PASS: Scenario - Validate kubeadm-external-external-nginx - 
+Running: Scenario - Get packages for kubeadm-external-external-nginx
+PASS: Scenario - Get packages for kubeadm-external-external-nginx - 
+Running: Scenario - Get images for kubeadm-external-external-nginx
+PASS: Scenario - Get images for kubeadm-external-external-nginx - 
+Running: Scenario - Get binaries for kubeadm-external-external-nginx
+PASS: Scenario - Get binaries for kubeadm-external-external-nginx - 
+Running: Scenario - Get description for kubeadm-external-external-nginx
+PASS: Scenario - Get description for kubeadm-external-external-nginx - 
+Running: Scenario - Get complexity for kubeadm-external-external-nginx
+PASS: Scenario - Get complexity for kubeadm-external-external-nginx - 
+Running: Scenario - Validate kubexm-stacked-none-none
+PASS: Scenario - Validate kubexm-stacked-none-none - 
+Running: Scenario - Get packages for kubexm-stacked-none-none
+PASS: Scenario - Get packages for kubexm-stacked-none-none - 
+Running: Scenario - Get images for kubexm-stacked-none-none
+PASS: Scenario - Get images for kubexm-stacked-none-none - 
+Running: Scenario - Get binaries for kubexm-stacked-none-none
+PASS: Scenario - Get binaries for kubexm-stacked-none-none - 
+Running: Scenario - Get description for kubexm-stacked-none-none
+PASS: Scenario - Get description for kubexm-stacked-none-none - 
+Running: Scenario - Get complexity for kubexm-stacked-none-none
+PASS: Scenario - Get complexity for kubexm-stacked-none-none - 
+Running: Scenario - Validate kubexm-external-external-haproxy
+PASS: Scenario - Validate kubexm-external-external-haproxy - 
+Running: Scenario - Get packages for kubexm-external-external-haproxy
+PASS: Scenario - Get packages for kubexm-external-external-haproxy - 
+Running: Scenario - Get images for kubexm-external-external-haproxy
+PASS: Scenario - Get images for kubexm-external-external-haproxy - 
+Running: Scenario - Get binaries for kubexm-external-external-haproxy
+PASS: Scenario - Get binaries for kubexm-external-external-haproxy - 
+Running: Scenario - Get description for kubexm-external-external-haproxy
+PASS: Scenario - Get description for kubexm-external-external-haproxy - 
+Running: Scenario - Get complexity for kubexm-external-external-haproxy
+PASS: Scenario - Get complexity for kubexm-external-external-haproxy - 
+Running: Scenario - Validate kubexm-stacked-kube-vip-none
+PASS: Scenario - Validate kubexm-stacked-kube-vip-none - 
+Running: Scenario - Get packages for kubexm-stacked-kube-vip-none
+PASS: Scenario - Get packages for kubexm-stacked-kube-vip-none - 
+Running: Scenario - Get images for kubexm-stacked-kube-vip-none
+PASS: Scenario - Get images for kubexm-stacked-kube-vip-none - 
+Running: Scenario - Get binaries for kubexm-stacked-kube-vip-none
+PASS: Scenario - Get binaries for kubexm-stacked-kube-vip-none - 
+Running: Scenario - Get description for kubexm-stacked-kube-vip-none
+PASS: Scenario - Get description for kubexm-stacked-kube-vip-none - 
+Running: Scenario - Get complexity for kubexm-stacked-kube-vip-none
+PASS: Scenario - Get complexity for kubexm-stacked-kube-vip-none - 
+Running: Scenarios - All 24 scenarios are valid
+PASS: Scenarios - All 24 scenarios are valid - 
+Running: Performance - Parse 100 scenarios
+PASS: Performance - Parse 100 scenarios - 
+Running: Performance - Generate package list (100 times)
+PASS: Performance - Generate package list (100 times) - 
+Running: Performance - Generate image list (100 times)
+PASS: Performance - Generate image list (100 times) - 
+Running: Performance - Read config (100 times)
+PASS: Performance - Read config (100 times) - 
+Cleanup completed</pre>
+</body>
+</html>

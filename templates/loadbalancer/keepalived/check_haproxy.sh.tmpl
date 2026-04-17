@@ -1,0 +1,17 @@
+#!/bin/bash
+# HAProxy health check script for Keepalived
+
+if ! pgrep -x haproxy > /dev/null; then
+  echo "HAProxy is not running"
+  exit 1
+fi
+
+# Check if HAProxy is listening on the API server port
+API_PORT={{ .API_SERVER_PORT | default 6443 }}
+if ! netstat -ln | grep -q ":${API_PORT} "; then
+  echo "HAProxy is not listening on port ${API_PORT}"
+  exit 1
+fi
+
+echo "HAProxy is healthy"
+exit 0

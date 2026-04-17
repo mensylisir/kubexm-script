@@ -1,0 +1,14 @@
+apiVersion: kubexm.io/v1
+kind: HostList
+metadata:
+  name: test-cluster
+spec:
+  hosts:
+    - {name: node1, address: 172.16.47.130, user: root, password: "1qaz2wsx"}
+    - {name: node2, address: 172.16.47.131, user: root, password: "1qaz2wsx"}
+    - {name: node3, address: 172.16.47.132, user: root, password: "1qaz2wsx"}
+  roleGroups:
+    etcd: [node1]
+    control-plane: [node1]
+    worker: [node2, node3]
+    registry: []

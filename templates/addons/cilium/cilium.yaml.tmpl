@@ -1,0 +1,424 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cilium
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cilium
+rules:
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - configmaps
+  - nodes
+  - services
+  - endpoints
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - nodes/status
+  verbs:
+  - patch
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - cilium.io
+  resources:
+  - ciliumloadbalancerippools
+  - ciliumenvoyconfigs
+  - ciliumendpoints
+  - ciliumidentities
+  - ciliumnodes
+  - ciliumnetworkpolicies
+  verbs:
+  - create
+  - get
+  - getlist
+  - list
+  - watch
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - cilium.io
+  resources:
+  - ciliumidentities
+  - ciliumnodes
+  verbs:
+  - create
+  - get
+  - getlist
+  - list
+  - watch
+  - update
+  - patch
+  - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cilium
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cilium
+subjects:
+- kind: ServiceAccount
+  name: cilium
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cilium-config-agent
+  namespace: kube-system
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - delete
+  - create
+  - update
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  resourceNames:
+  - cilium-config
+  verbs:
+  - get
+  - delete
+  - create
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cilium-config-agent
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cilium-config-agent
+subjects:
+- kind: ServiceAccount
+  name: cilium
+  namespace: kube-system
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cilium
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      k8s-app: cilium
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+      labels:
+        k8s-app: cilium
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/os
+                operator: In
+                values:
+                - linux
+      containers:
+      - args:
+        - --config-dir=/tmp/cilium/config-map
+        command:
+        - cilium-agent
+        env:
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: CILIUM_K8S_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: KUBERNETES_SERVICE_HOST
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.serviceClusterIP
+        - name: KUBERNETES_SERVICE_PORT
+          value: "443"
+        - name: KUBERNETES_SERVICE_PORT_HTTPS
+          value: "443"
+        image: ${IMAGE_REGISTRY:-}cilium/cilium:${CILIUM_VERSION}
+        imagePullPolicy: IfPresent
+        lifecycle:
+          postStart:
+            exec:
+              command:
+              - /cni-uninstall.sh
+          preStop:
+            exec:
+              command:
+              - /cni-uninstall.sh
+        livenessProbe:
+          exec:
+            command:
+            - cilium
+            - status
+            - --brief
+          failureThreshold: 3
+          initialDelaySeconds: 5
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: cilium-agent
+        ports:
+        - containerPort: 9090
+          hostPort: 9090
+          name: prometheus
+          protocol: TCP
+        readinessProbe:
+          exec:
+            command:
+            - cilium
+            - status
+            - --brief
+          failureThreshold: 3
+          initialDelaySeconds: 5
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 5
+        securityContext:
+          capabilities:
+            add:
+            - CHOWN
+            - DAC_OVERRIDE
+            - FOWNER
+            - FSETID
+            - KILL
+            - NET_ADMIN
+            - NET_RAW
+            - SETFCAP
+            - SETGID
+            - SETUID
+            - SYS_ADMIN
+            - SYS_CHROOT
+          privileged: false
+        startupProbe:
+          exec:
+            command:
+            - cilium
+            - status
+            - --brief
+          failureThreshold: 105
+          initialDelaySeconds: 5
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 5
+        volumeMounts:
+        - mountPath: /sys/fs/bpf
+          name: bpf-maps
+        - mountPath: /var/run/cilium
+          name: cilium-run
+        - mountPath: /etc/cilium/configmap
+          name: cilium-config-path
+          readOnly: true
+        - mountPath: /host/proc/sys/net
+          name: host-proc-sys-net
+          readOnly: true
+      hostNetwork: true
+      initContainers:
+      - args:
+        - --config-dir=/tmp/cilium/config-map
+        - --kvstore=etcd-operator
+        command:
+        - cilium-compiler
+        env:
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        image: ${IMAGE_REGISTRY:-}cilium/cilium:${CILIUM_VERSION}
+        imagePullPolicy: IfPresent
+        volumeMounts:
+        - mountPath: /tmp/cilium/config-map
+          name: cilium-config-path
+        - mountPath: /sys/fs/bpf
+          name: bpf-maps
+      - command:
+        - sh
+        - -c
+        - |
+          set -e
+          cp /usr/bin/cilium-mount /host/bin/cilium-mount
+          chmod +x /host/bin/cilium-mount
+        image: ${IMAGE_REGISTRY:-}cilium/cilium:${CILIUM_VERSION}
+        imagePullPolicy: IfPresent
+        name: mount-cgroup
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /host/bin
+          name: cni-bin
+      - command:
+        - sh
+        - -c
+        - |
+          set -e
+          cp /usr/bin/cilium-uninstall /host/bin/cilium-uninstall
+          chmod +x /host/bin/cilium-uninstall
+        image: ${IMAGE_REGISTRY:-}cilium/cilium:${CILIUM_VERSION}
+        imagePullPolicy: IfPresent
+        name: cni-uninstall
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /host/bin
+          name: cni-bin
+      - command:
+        - sh
+        - -c
+        - |
+          set -e
+          until mount | grep /sys/fs/bpf; do
+            echo "Waiting for /sys/fs/bpf to be mounted..."
+            sleep 1
+          done
+          echo "/sys/fs/bpf is mounted"
+        image: ${IMAGE_REGISTRY:-}cilium/cilium:${CILIUM_VERSION}
+        imagePullPolicy: IfPresent
+        name: bpf-maps
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /sys/fs/bpf
+          name: bpf-maps
+      priorityClassName: system-node-critical
+      restartPolicy: Always
+      serviceAccountName: cilium
+      terminationGracePeriodSeconds: 5
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+      volumes:
+      - hostPath:
+          path: /sys/fs/bpf
+          type: DirectoryOrCreate
+        name: bpf-maps
+      - hostPath:
+          path: /var/run/cilium
+          type: DirectoryOrCreate
+        name: cilium-run
+      - hostPath:
+          path: /opt/cni/bin
+          type: Directory
+        name: cni-bin
+      - configMap:
+          defaultMode: 420
+          name: cilium-config
+        name: cilium-config-path
+      - hostPath:
+          path: /proc/sys/net
+        name: host-proc-sys-net
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cilium-config
+  namespace: kube-system
+data:
+  # Identity allocation mode
+  identity-allocation-mode: "crd"
+  cilium-endpoint-gc-interval: "5m0s"
+  node-init-timeout: "5m"
+  # If you want the cilium agent to manage kube-proxy, set this to true
+  kube-proxy-replacement: "disabled"
+  enable-k8s-endpoint-slice: "true"
+  # Enable Hubble server
+  enable-hubble: "true"
+  # Hubble metrics to enable
+  hubble-metrics: "drop,destination,policy,l7,flow"
+  # Hubble listen address
+  hubble-listen-address: ":4244"
+  hubble-disable-tls: "false"
+  # Cilium metric collection
+  prometheus-serve-addr: ":9090"
+  # Enable IPv4 addressing
+  enable-ipv4: "true"
+  # Enable IPv6 addressing
+  enable-ipv6: "false"
+  # Interface to be used when running Cilium in user space (i.e., "cilium monitor")
+  tunnel: "${CILIUM_TUNNEL_MODE:-geneve}"
+  # Policy enforcement mode
+  policy-enforcement-mode: "${CILIUM_POLICY_MODE:-default}"
+  # Cluster health monitoring
+  enable-cluster-health: "true"
+  # Enable remote node identity
+  enable-node-port: "true"
+  # Auto detect the k8s pod CIDR(s)
+  auto-direct-node-routes: "true"
+  enable-bpf-map-reuse: "true"
+  # Enable Bandwidth Manager
+  enable-bandwidth-manager: "true"
+  # Enable DNS proxy
+  enable-dns-proxy: "true"
+  # Enable endpoint routes
+  enable-endpoint-routes: "true"
+  # Enable Hubble
+  enable-hubble: "true"
+  # Hubble metrics
+  hubble-metrics: "drop,destination,policy,l7,flow"
+  # Hubble listen address
+  hubble-listen-address: ":4244"
+  # Hubble TLS
+  hubble-disable-tls: "false"

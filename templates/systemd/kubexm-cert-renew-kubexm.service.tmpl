@@ -1,0 +1,31 @@
+[Unit]
+Description=Kubernetes Certificate Renewal Check (kubexm binary)
+Documentation=https://github.com/kubexm
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# kubexm 二进制模式使用 kubexm renew 命令
+ExecStart=/bin/bash -c '\
+  DAYS_BEFORE=${CERT_RENEW_DAYS_BEFORE:-30}; \
+  PKI_DIR=${KUBEXM_PKI_DIR:-/etc/kubernetes/pki}; \
+  for cert in $PKI_DIR/*.crt; do \
+    if [ -f "$cert" ]; then \
+      end_date=$(openssl x509 -enddate -noout -in "$cert" 2>/dev/null | cut -d= -f2); \
+      end_ts=$(date -d "$end_date" +%s 2>/dev/null); \
+      now_ts=$(date +%s); \
+      days_left=$(( (end_ts - now_ts) / 86400 )); \
+      if [ "$days_left" -lt "$DAYS_BEFORE" ]; then \
+        echo "Certificate $cert expires in $days_left days, renewing..."; \
+        /usr/local/bin/kubexm renew kubernetes-certs --cluster=${KUBEXM_CLUSTER_NAME}; \
+        exit 0; \
+      fi; \
+    fi; \
+  done; \
+  echo "All certificates are valid for more than $DAYS_BEFORE days"'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

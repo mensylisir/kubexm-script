@@ -1,0 +1,15 @@
+[Unit]
+Description=Keepalived high availability monitor
+After=network.target
+
+[Service]
+Type=notify
+ExecStart=/usr/sbin/keepalived --dont-fork --log-console --log-detail --pidfile /var/run/keepalived.pid
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=5
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

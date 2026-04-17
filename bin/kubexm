@@ -1,0 +1,816 @@
+#!/usr/bin/env bash
+
+# ==============================================================================
+# KubeXM - Kubernetes Cluster Management Tool
+# ==============================================================================
+# 用法: kubexm <command> [subcommand] [options]
+#
+# 核心命令:
+#   download                  离线下载集群资源
+#   create cluster            创建集群
+#   create registry           创建Registry（仅离线模式）
+#   delete cluster            删除集群
+#   delete registry           删除Registry（仅离线模式）
+#   push images               推送镜像到Registry（仅离线模式）
+#   scale cluster             扩缩容集群
+#   upgrade cluster           升级Kubernetes
+#   upgrade etcd              升级etcd
+#   renew kubernetes-ca       续期Kubernetes CA证书
+#   renew etcd-ca             续期etcd CA证书
+#   renew kubernetes-certs    续期Kubernetes叶子证书
+#   renew etcd-certs          续期etcd叶子证书
+#   backup cluster            备份集群 (etcd 快照)
+#   restore cluster           恢复集群 (etcd 快照)
+#   health cluster            健康检查
+#   reconfigure cluster       重载配置
+# ==============================================================================
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+# 获取项目根目录
+KUBEXM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export KUBEXM_ROOT
+export PATH="${KUBEXM_ROOT}/bin:${PATH}"
+
+# 数据目录: PWD/.kubexm (用户执行目录)，允许通过环境变量覆盖
+# 用于存储: 集群上下文、下载包、证书、manifests 等
+# 目录结构:
+#   .kubexm/
+#   ├── downloads/              (共享，所有集群复用)
+#   ├── iso/                   (共享)
+#   ├── ${CLUSTER_NAME}/       (集群隔离)
+#   │   ├── config/            (解析后的 host/config 状态)
+#   │   ├── hosts/
+#   │   ├── roles/
+#   │   ├── manifests/         (渲染后的 manifests)
+#   │   ├── certs/             (证书，按节点组织)
+#   │   └── rotate/            (证书轮转)
+KUBEXM_DATA_DIR="${KUBEXM_DATA_DIR:-${PWD}/.kubexm}"
+export KUBEXM_DATA_DIR
+
+# 加载内部模块
+source "${KUBEXM_ROOT}/internal/loader.sh"
+
+# 加载 Pipeline 路由
+source "${KUBEXM_ROOT}/internal/pipeline/cluster/create_cluster.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/assets/download.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/cluster/registry.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/cluster/delete_cluster.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/assets/push_images.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/cluster/scale_cluster.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/cluster/scaleout_cluster.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/cluster/scalein_cluster.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/cluster/upgrade_cluster.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/cluster/upgrade_etcd.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/cluster/renew_etcd_ca.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/cluster/renew_etcd_certs.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/cluster/renew_kubernetes_ca.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/cluster/renew_kubernetes_certs.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/assets/manifests.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/assets/iso.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/cluster/backup.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/cluster/restore.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/cluster/health.sh"
+source "${KUBEXM_ROOT}/internal/pipeline/cluster/reconfigure.sh"
+
+# 加载核心模块
+source "${KUBEXM_ROOT}/internal/logger/log.sh"
+source "${KUBEXM_ROOT}/internal/config/config.sh"
+source "${KUBEXM_ROOT}/internal/config/versions.sh"
+source "${KUBEXM_ROOT}/internal/config/defaults.sh"
+source "${KUBEXM_ROOT}/internal/utils/utils.sh"
+source "${KUBEXM_ROOT}/internal/errors/error.sh"
+source "${KUBEXM_ROOT}/internal/cache/cache.sh"
+source "${KUBEXM_ROOT}/internal/utils/helm_manager.sh"
+
+# 版本信息
+KUBEXM_VERSION="0.1.0"
+
+#######################################
+# 显示版本信息
+#######################################
+show_version() {
+  echo "kubexm version ${KUBEXM_VERSION}"
+}
+
+#######################################
+# 显示帮助信息
+#######################################
+show_help() {
+  cat << 'EOF'
+KubeXM - Kubernetes集群部署和管理工具
+
+用法:
+  kubexm <command> [subcommand] [options]
+
+核心命令:
+  download                  离线下载集群资源
+  create manifests          显示依赖清单(镜像、二进制、Helm包)
+  create cluster            创建集群
+  create registry           创建Registry（仅离线模式）
+  create iso                构建系统包 ISO（离线源）
+  delete cluster            删除集群
+  delete registry           删除Registry（仅离线模式）
+  push images               推送镜像到Registry（仅离线模式）
+  scale cluster             扩缩容集群
+  upgrade cluster           升级Kubernetes集群
+  upgrade etcd              升级etcd
+  renew kubernetes-ca       续期Kubernetes CA证书
+  renew etcd-ca             续期etcd CA证书
+  renew kubernetes-certs    续期Kubernetes叶子证书
+  renew etcd-certs          续期etcd叶子证书
+  backup cluster            备份集群 (etcd 快照)
+  restore cluster           恢复集群 (etcd 快照)
+  health cluster            健康检查
+  reconfigure cluster       重载配置
+  version                   显示版本信息
+
+下载命令:
+  kubexm download --cluster=CLUSTER_NAME
+    从 conf/clusters/CLUSTER_NAME/config.yaml 读取配置并下载所需资源
+    说明: download 不读取/校验 host.yaml
+
+依赖清单命令:
+  kubexm create manifests                            # 显示默认kubeadm v1.32.4的所有依赖
+  kubexm create manifests --kubernetes-version=v1.34.2  # 显示指定版本(默认kubeadm)
+  kubexm create manifests --kubernetes-version=v1.34.2 --kubernetes-type=kubexm  # 显示kubexm模式
+
+创建集群命令:
+  kubexm create cluster --cluster=mycluster            # 使用conf/clusters/mycluster下的配置创建集群
+
+删除集群命令:
+  kubexm delete cluster --cluster=mycluster            # 删除conf/clusters/mycluster下的配置集群
+
+扩缩容命令:
+  kubexm scale cluster --cluster=mycluster             # 扩缩容集群
+
+升级命令:
+  kubexm upgrade cluster --cluster=mycluster --to-version=v1.33.0  # 升级Kubernetes
+  kubexm upgrade etcd --cluster=mycluster --to-version=3.5.15       # 升级etcd
+
+证书续期命令:
+  kubexm renew kubernetes-ca --cluster=mycluster       # 续期K8s CA
+  kubexm renew etcd-ca --cluster=mycluster             # 续期etcd CA
+  kubexm renew kubernetes-certs --cluster=mycluster    # 续期K8s叶子证书
+  kubexm renew etcd-certs --cluster=mycluster          # 续期etcd叶子证书
+
+备份恢复命令:
+  kubexm backup cluster --cluster=mycluster           # 备份集群 (etcd快照)
+  kubexm backup cluster --cluster=mycluster --path=/path  # 指定备份路径
+  kubexm restore cluster --cluster=mycluster --path=/path # 恢复集群
+
+健康检查命令:
+  kubexm health cluster --cluster=mycluster           # 检查集群健康状态
+  kubexm health cluster --cluster=mycluster --check=node      # 仅检查节点
+  kubexm health cluster --cluster=mycluster --check=component # 仅检查组件
+  kubexm health cluster --cluster=mycluster --check=workload  # 仅检查工作负载
+
+配置重载命令:
+  kubexm reconfigure cluster --cluster=mycluster       # 重载所有组件配置
+  kubexm reconfigure cluster --cluster=mycluster --target=runtime  # 仅重载运行时
+  kubexm reconfigure cluster --cluster=mycluster --target=etcd     # 仅重载etcd
+  kubexm reconfigure cluster --cluster=mycluster --target=cni      # 仅重载CNI
+  kubexm reconfigure cluster --cluster=mycluster --target=lb      # 仅重载LB
+  kubexm reconfigure cluster --cluster=mycluster --target=addons  # 仅重载Addons
+  kubexm reconfigure cluster --cluster=mycluster --target=hosts # 仅更新/etc/hosts
+
+示例:
+  # 离线模式 (联网机器先下载，再拷贝 packages 到离线环境)
+  kubexm download --cluster=mycluster                  # 在联网机器下载资源
+  kubexm create cluster --cluster=mycluster            # 离线环境创建集群
+
+  # 可选: 若启用本地 Registry，可再执行
+  kubexm create registry --cluster=mycluster           # 部署本地Registry
+  kubexm push images --cluster=mycluster               # 推送镜像到Registry
+
+  # 在线模式 - 创建集群 (自动 download + create)
+  kubexm create cluster --cluster=mycluster
+
+  # 镜像推送示例
+  kubexm push images                                    # 推送镜像到本机Registry
+  kubexm push images --dual                             # 双镜像推送
+  kubexm push images --list=/path/to/images.txt        # 指定镜像列表
+
+EOF
+}
+
+#######################################
+# 判断是否包含帮助参数
+#######################################
+cli::has_help_flag() {
+  local arg
+  for arg in "$@"; do
+    case "${arg}" in
+      -h|--help)
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+#######################################
+# 显示download命令帮助
+#######################################
+show_download_help() {
+  cat << 'EOF'
+用法: kubexm download --cluster=CLUSTER_NAME [options]
+
+选项:
+  --cluster=NAME           集群名称 (必须)，从 conf/clusters/NAME/config.yaml 读取配置
+  --kubernetes-version=VER Kubernetes版本 (覆盖配置文件)
+  --container-runtime=RT   容器运行时 (覆盖配置文件)
+  --cni=PLUGIN             CNI插件 (覆盖配置文件)
+
+ISO构建选项:
+  --with-build-all              Docker 构建所有系统所有架构
+  --with-build-os=OS            Docker 构建指定系统 (centos7, rocky9, ubuntu22)
+  --with-build-os-version=VER   Docker 构建指定系统版本
+  --with-build-arch=ARCH        指定架构 (amd64, arm64)，默认双架构
+  --with-build-local            本地构建，不使用 Docker
+
+示例:
+  kubexm download --cluster=mycluster
+  kubexm download --cluster=mycluster --kubernetes-version=v1.27.2
+  kubexm download --cluster=mycluster --with-build-os=rocky9
+EOF
+}
+
+#######################################
+# 显示create cluster命令帮助
+#######################################
+show_create_cluster_help() {
+  cat << 'EOF'
+用法: kubexm create cluster --cluster=NAME
+
+选项:
+  --cluster=NAME           使用 conf/clusters/NAME 下的配置文件创建集群
+  说明: 离线模式若启用 registry，将自动部署 registry 并从 packages 推送镜像
+
+示例:
+  kubexm create cluster --cluster=mycluster
+EOF
+}
+
+#######################################
+# 显示create registry命令帮助
+#######################################
+show_create_registry_help() {
+  cat << 'EOF'
+用法: kubexm create registry --cluster=NAME
+
+描述:
+  创建并部署Docker Registry (仅离线模式需要)
+  Registry节点从 conf/clusters/NAME/host.yaml 中的 registry 角色获取
+
+选项:
+  --cluster=NAME      集群名称 (必须)，使用 conf/clusters/NAME 下的配置文件
+
+前提条件:
+  1. config.yaml 中需要设置 spec.registry.enable: true
+  2. host.yaml 中需要有 role: registry 的主机
+
+示例:
+  kubexm create registry --cluster=mycluster
+EOF
+}
+
+#######################################
+# 显示delete registry命令帮助
+#######################################
+show_delete_registry_help() {
+  cat << 'EOF'
+用法: kubexm delete registry --cluster=NAME [--force]
+
+描述:
+  删除并移除Docker Registry (仅离线模式需要)
+  Registry节点从 conf/clusters/NAME/host.yaml 中的 registry 角色获取
+
+选项:
+  --cluster=NAME      集群名称 (必须)，使用 conf/clusters/NAME 下的配置文件
+  --force             强制删除不提示确认
+  --delete-images     删除Registry数据目录（需配合 --force）
+
+示例:
+  kubexm delete registry --cluster=mycluster
+  kubexm delete registry --cluster=mycluster --force
+EOF
+}
+
+#######################################
+# 显示delete cluster命令帮助
+#######################################
+show_delete_cluster_help() {
+  cat << 'EOF'
+用法: kubexm delete cluster --cluster=NAME [--force] [--backup=PATH]
+
+描述:
+  删除集群及其所有组件（不可逆）
+
+选项:
+  --cluster=NAME      集群名称 (必须)，使用 conf/clusters/NAME 下的配置文件
+  --force             强制删除不提示确认
+  --backup=PATH       删除前创建etcd备份到指定路径（防止数据丢失）
+
+示例:
+  kubexm delete cluster --cluster=mycluster
+  kubexm delete cluster --cluster=mycluster --force
+  kubexm delete cluster --cluster=mycluster --backup=/path/to/backup
+EOF
+}
+
+#######################################
+# 显示scale cluster命令帮助
+#######################################
+show_scale_cluster_help() {
+  cat << 'EOF'
+用法: kubexm scale cluster --cluster=NAME --action=ACTION [options]
+
+描述:
+  扩缩容集群节点
+
+选项:
+  --cluster=NAME      集群名称 (必须)，使用 conf/clusters/NAME 下的配置文件
+  --action=ACTION     操作类型 (必须): scale-out (扩容) 或 scale-in (缩容)
+  --role=ROLE         目标角色 (可选): worker, control-plane, etcd
+  --nodes=NODES       指定节点 (可选)，逗号分隔的节点列表
+
+扩缩容说明:
+  - Scale-out: 添加新节点到集群
+  - Scale-in: 从集群移除节点 (会先 drain 节点)
+  - 可通过 --role 指定只扩缩容特定角色
+  - 可通过 --nodes 指定具体节点
+
+示例:
+  # 扩容所有 worker 节点
+  kubexm scale cluster --cluster=mycluster --action=scale-out
+
+  # 缩容指定 worker 节点
+  kubexm scale cluster --cluster=mycluster --action=scale-in --nodes=node-4,node-5
+
+  # 仅扩容 control-plane 节点
+  kubexm scale cluster --cluster=mycluster --action=scale-out --role=control-plane
+EOF
+}
+
+#######################################
+# 显示upgrade cluster命令帮助
+#######################################
+show_upgrade_cluster_help() {
+  cat << 'EOF'
+用法: kubexm upgrade cluster --cluster=NAME --to-version=VERSION
+
+描述:
+  升级 Kubernetes 集群到指定版本
+
+选项:
+  --cluster=NAME           集群名称 (必须)
+  --to-version=VERSION     目标版本 (必须)，如 v1.33.0
+
+升级流程:
+  1. PreUpgrade - 预检查
+  2. ControlPlaneUpgrade - 控制面升级
+  3. WorkersUpgrade - 工作节点升级
+  4. AddonsUpgrade - Addons 升级
+
+示例:
+  kubexm upgrade cluster --cluster=mycluster --to-version=v1.33.0
+EOF
+}
+
+#######################################
+# 显示upgrade etcd命令帮助
+#######################################
+show_upgrade_etcd_help() {
+  cat << 'EOF'
+用法: kubexm upgrade etcd --cluster=NAME --to-version=VERSION
+
+描述:
+  升级 ETCD 到指定版本
+
+选项:
+  --cluster=NAME           集群名称 (必须)
+  --to-version=VERSION     目标版本 (必须)，如 3.5.15
+
+示例:
+  kubexm upgrade etcd --cluster=mycluster --to-version=3.5.15
+EOF
+}
+
+#######################################
+# 显示manifests命令帮助
+#######################################
+show_manifests_help() {
+  cat << 'EOF'
+用法: kubexm create manifests [options]
+
+描述:
+  显示指定Kubernetes版本的所有依赖项(镜像、二进制、Helm包、系统依赖)及版本号
+
+选项:
+  --kubernetes-version=VER   Kubernetes版本 (默认: v1.32.4)
+  --kubernetes-type=TYPE     部署类型: kubeadm | kubexm (默认: kubeadm)
+  --container-runtime=RT     容器运行时 (默认: containerd)
+  --cni=PLUGIN               CNI插件 (默认: calico)
+  --arch=ARCH                架构 (默认: amd64,arm64)
+  --cluster=NAME             从配置文件读取集群配置
+
+示例:
+  # 显示默认kubeadm模式的所有依赖
+  kubexm create manifests
+
+  # 显示指定版本(默认kubeadm)
+  kubexm create manifests --kubernetes-version=v1.34.2
+
+  # 显示kubexm模式的所有依赖
+  kubexm create manifests --kubernetes-version=v1.34.2 --kubernetes-type=kubexm
+
+  # 从配置文件读取集群配置
+  kubexm create manifests --cluster=mycluster
+EOF
+}
+
+#######################################
+# 显示create iso命令帮助
+#######################################
+show_create_iso_help() {
+  cat << 'EOF'
+用法: kubexm create iso [options]
+
+描述:
+  构建系统包 ISO（离线 yum/apt 源）
+
+选项:
+  --with-build-all              Docker 构建所有系统所有架构
+  --with-build-os=OS            Docker 构建指定系统 (centos7, rocky9, ubuntu22)
+  --with-build-os-version=VER   Docker 构建指定系统版本 (如 rocky9)
+  --with-build-arch=ARCH        指定架构 (amd64, arm64)，默认双架构
+  --with-build-local            本地构建，不使用 Docker
+
+示例:
+  kubexm create iso                           # 默认所有系统
+  kubexm create iso --with-build-os=rocky9    # 仅 rocky9
+  kubexm create iso --with-build-arch=amd64   # 仅 amd64
+  kubexm create iso --with-build-local        # 本地构建
+EOF
+}
+
+#######################################
+# 显示push images命令帮助
+#######################################
+show_push_images_help() {
+  cat << 'EOF'
+用法: kubexm push images [options]
+
+描述:
+  推送镜像到Registry (仅离线模式需要)
+
+选项:
+  --cluster=NAME              使用 conf/clusters/NAME 下的Registry配置
+ --list=FILE                 镜像列表文件 (默认: etc/kubexm/images.txt)
+ --dual                      启用双镜像推送 (原始 + 重命名)
+ --manifest                  生成并推送多架构manifest (需要manifest-tool)
+ --target-registry=URL       目标Registry地址
+ --packages                  从packages目录推送已下载的镜像 (使用 packages/images/images.list)
+ --packages-dir=DIR          指定packages目录路径 (可为packages或packages/images)
+  --parallel=N                启用并发模式并设置并发数（仅 --packages 模式）
+
+示例:
+  # 推送镜像到本机Registry
+  kubexm push images
+
+  # 推送到集群Registry
+  kubexm push images --cluster=mycluster
+
+  # 双镜像推送
+  kubexm push images --dual
+
+  # 指定镜像列表文件
+  kubexm push images --list=/path/to/images.txt
+
+  # 从packages目录推送已下载的镜像
+  kubexm push images --packages
+
+  # 从packages目录推送并启用双镜像模式
+  kubexm push images --packages --dual
+
+  # packages 模式启用并发推送（并发数 8）
+  kubexm push images --packages --parallel=8
+EOF
+}
+
+#######################################
+# 主函数
+#######################################
+main() {
+  # 检查参数
+  if [[ $# -eq 0 ]]; then
+    show_help
+    exit 0
+  fi
+
+  # 解析命令
+  local cmd="$1"
+  shift
+
+  local ctx="cli"
+  context::init
+
+  case "$cmd" in
+    download)
+      if cli::has_help_flag "$@"; then
+        show_download_help
+        exit 0
+      fi
+      pipeline::download "${ctx}" "$@"
+      ;;
+    create)
+      if [[ $# -eq 0 ]]; then
+        log::error "缺少子命令"
+        show_help
+        exit 1
+      fi
+      local subcmd="$1"
+      shift
+      case "$subcmd" in
+        cluster)
+          if cli::has_help_flag "$@"; then
+            show_create_cluster_help
+            exit 0
+          fi
+          pipeline::create_cluster "${ctx}" "$@"
+          ;;
+        registry)
+          if cli::has_help_flag "$@"; then
+            show_create_registry_help
+            exit 0
+          fi
+          pipeline::create_registry "${ctx}" "$@"
+          ;;
+        manifests)
+          if cli::has_help_flag "$@"; then
+            show_manifests_help
+            exit 0
+          fi
+          pipeline::manifests "${ctx}" "$@"
+          ;;
+        iso)
+          if cli::has_help_flag "$@"; then
+            show_create_iso_help
+            exit 0
+          fi
+          pipeline::iso "${ctx}" "$@"
+          ;;
+        *)
+          log::error "未知子命令: create $subcmd"
+          show_help
+          exit 1
+          ;;
+      esac
+      ;;
+    delete)
+      if [[ $# -eq 0 ]]; then
+        log::error "缺少子命令"
+        show_help
+        exit 1
+      fi
+      local subcmd="$1"
+      shift
+      case "$subcmd" in
+        cluster)
+          if cli::has_help_flag "$@"; then
+            show_delete_cluster_help
+            exit 0
+          fi
+          pipeline::delete_cluster "${ctx}" "$@"
+          ;;
+        registry)
+          if cli::has_help_flag "$@"; then
+            show_delete_registry_help
+            exit 0
+          fi
+          pipeline::delete_registry "${ctx}" "$@"
+          ;;
+        *)
+          log::error "未知子命令: delete $subcmd"
+          show_help
+          exit 1
+          ;;
+      esac
+      ;;
+    push)
+      if [[ $# -eq 0 ]]; then
+        log::error "缺少子命令"
+        show_help
+        exit 1
+      fi
+      local subcmd="$1"
+      shift
+      case "$subcmd" in
+        images)
+          if cli::has_help_flag "$@"; then
+            show_push_images_help
+            exit 0
+          fi
+          pipeline::push_images "${ctx}" "$@"
+          ;;
+        *)
+          log::error "未知子命令: push $subcmd"
+          show_help
+          exit 1
+          ;;
+      esac
+      ;;
+    scale)
+      if [[ $# -eq 0 ]]; then
+        log::error "缺少子命令"
+        show_help
+        exit 1
+      fi
+      local subcmd="$1"
+      shift
+      case "$subcmd" in
+        cluster)
+          if cli::has_help_flag "$@"; then
+            show_scale_cluster_help
+            exit 0
+          fi
+          pipeline::scale_cluster "${ctx}" "$@"
+          ;;
+        *)
+          log::error "未知子命令: scale $subcmd"
+          show_help
+          exit 1
+          ;;
+      esac
+      ;;
+    upgrade)
+      if [[ $# -eq 0 ]]; then
+        log::error "缺少子命令"
+        show_help
+        exit 1
+      fi
+      local subcmd="$1"
+      shift
+      case "$subcmd" in
+        cluster)
+          if cli::has_help_flag "$@"; then
+            show_upgrade_cluster_help
+            exit 0
+          fi
+          pipeline::upgrade_cluster "${ctx}" "$@"
+          ;;
+        etcd)
+          if cli::has_help_flag "$@"; then
+            show_upgrade_etcd_help
+            exit 0
+          fi
+          pipeline::upgrade_etcd "${ctx}" "$@"
+          ;;
+        *)
+          log::error "未知子命令: upgrade $subcmd"
+          show_help
+          exit 1
+          ;;
+      esac
+      ;;
+    renew)
+      if [[ $# -eq 0 ]]; then
+        log::error "缺少子命令"
+        show_help
+        exit 1
+      fi
+      local subcmd="$1"
+      shift
+      case "$subcmd" in
+        kubernetes-ca)
+          if cli::has_help_flag "$@"; then
+            echo "用法: kubexm renew kubernetes-ca --cluster=NAME"
+            exit 0
+          fi
+          pipeline::renew_kubernetes_ca "${ctx}" "$@"
+          ;;
+        etcd-ca)
+          if cli::has_help_flag "$@"; then
+            echo "用法: kubexm renew etcd-ca --cluster=NAME"
+            exit 0
+          fi
+          pipeline::renew_etcd_ca "${ctx}" "$@"
+          ;;
+        kubernetes-certs)
+          if cli::has_help_flag "$@"; then
+            echo "用法: kubexm renew kubernetes-certs --cluster=NAME"
+            exit 0
+          fi
+          pipeline::renew_kubernetes_certs "${ctx}" "$@"
+          ;;
+        etcd-certs)
+          if cli::has_help_flag "$@"; then
+            echo "用法: kubexm renew etcd-certs --cluster=NAME"
+            exit 0
+          fi
+          pipeline::renew_etcd_certs "${ctx}" "$@"
+          ;;
+        *)
+          log::error "未知子命令: renew $subcmd"
+          show_help
+          exit 1
+          ;;
+      esac
+      ;;
+    backup)
+      if [[ $# -eq 0 ]]; then
+        log::error "缺少子命令"
+        show_help
+        exit 1
+      fi
+      local backup_subcmd="$1"
+      shift
+      case "$backup_subcmd" in
+        cluster)
+          if cli::has_help_flag "$@"; then
+            echo "用法: kubexm backup cluster --cluster=NAME [--path=PATH]"
+            exit 0
+          fi
+          pipeline::backup_cluster "${ctx}" "$@"
+          ;;
+        *)
+          log::error "未知子命令: backup $backup_subcmd"
+          show_help
+          exit 1
+          ;;
+      esac
+      ;;
+    restore)
+      if [[ $# -eq 0 ]]; then
+        log::error "缺少子命令"
+        show_help
+        exit 1
+      fi
+      local restore_subcmd="$1"
+      shift
+      case "$restore_subcmd" in
+        cluster)
+          if cli::has_help_flag "$@"; then
+            echo "用法: kubexm restore cluster --cluster=NAME --path=PATH"
+            exit 0
+          fi
+          pipeline::restore_cluster "${ctx}" "$@"
+          ;;
+        *)
+          log::error "未知子命令: restore $restore_subcmd"
+          show_help
+          exit 1
+          ;;
+      esac
+      ;;
+    health)
+      if [[ $# -eq 0 ]]; then
+        log::error "缺少子命令"
+        show_help
+        exit 1
+      fi
+      local health_subcmd="$1"
+      shift
+      case "$health_subcmd" in
+        cluster)
+          if cli::has_help_flag "$@"; then
+            echo "用法: kubexm health cluster --cluster=NAME [--check=type]"
+            echo "  type: all, node, component, workload"
+            exit 0
+          fi
+          pipeline::health_cluster "${ctx}" "$@"
+          ;;
+        *)
+          log::error "未知子命令: health $health_subcmd"
+          show_help
+          exit 1
+          ;;
+      esac
+      ;;
+    reconfigure)
+      if cli::has_help_flag "$@"; then
+        echo "用法: kubexm reconfigure cluster --cluster=NAME [--target=component]"
+        echo "  target: all, runtime, etcd, cni, lb, addons, hosts"
+        exit 0
+      fi
+      pipeline::reconfigure_cluster "${ctx}" "$@"
+      ;;
+    version|-v|--version)
+      show_version
+      ;;
+    help|-h|--help)
+      show_help
+      ;;
+    *)
+      log::error "未知命令: $cmd"
+      show_help
+      exit 1
+      ;;
+  esac
+}
+
+# 执行主函数
+main "$@"

@@ -1,0 +1,33 @@
+[Unit]
+Description=etcd Backup Service (kubexm binary mode)
+Documentation=https://etcd.io/docs/
+After=network-online.target etcd.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# kubexm 二进制模式: etcd 直接运行在主机上
+# 直接调用 etcdctl 执行备份
+ExecStart=/bin/bash -c '\
+  BACKUP_DIR=${ETCD_BACKUP_DIR:-/var/backups/etcd}; \
+  KEEP=${ETCD_BACKUP_KEEP:-7}; \
+  CERT_DIR=${ETCD_CERT_DIR:-/etc/etcd/pki}; \
+  ENDPOINTS=${ETCD_ENDPOINTS:-https://127.0.0.1:2379}; \
+  TIMESTAMP=$(date +%%Y%%m%%d_%%H%%M%%S); \
+  mkdir -p $BACKUP_DIR; \
+  \
+  /usr/local/bin/etcdctl \
+    --endpoints=$ENDPOINTS \
+    --cacert=$CERT_DIR/ca.crt \
+    --cert=$CERT_DIR/server.crt \
+    --key=$CERT_DIR/server.key \
+    snapshot save $BACKUP_DIR/snapshot-$TIMESTAMP.db; \
+  \
+  # 清理旧备份
+  ls -t $BACKUP_DIR/snapshot-*.db 2>/dev/null | tail -n +$((KEEP+1)) | xargs -r rm -f; \
+  echo "Backup completed: $BACKUP_DIR/snapshot-$TIMESTAMP.db"'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

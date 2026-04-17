@@ -1,0 +1,38 @@
+# KubeXM Build Container - Kylin V10
+# Purpose: Build RPM packages and local repository for Kylin Linux V10
+
+# Kylin V10 is based on CentOS 8, use CentOS 8 as base
+FROM quay.io/centos/centos:stream8
+
+LABEL maintainer="KubeXM Team"
+LABEL description="Kylin V10 (CentOS 8-based) build environment for KubeXM offline packages"
+LABEL os.type="kylin"
+LABEL os.version="10"
+LABEL pkg.manager="dnf"
+
+# Note: Kylin V10 may use different mirror sources
+# In actual deployment, configure Kylin official mirror
+
+# Install build tools
+RUN dnf install -y \
+    dnf-utils \
+    createrepo_c \
+    rpm-build \
+    wget \
+    curl \
+    tar \
+    gzip \
+    xz \
+    && dnf clean all
+
+# Create build directories
+RUN mkdir -p /build/packages /build/repo /build/output
+
+WORKDIR /build
+
+# Copy build scripts
+COPY scripts/build-rpm.sh /build/
+RUN chmod +x /build/build-rpm.sh
+
+# Default command
+CMD ["/bin/bash"]

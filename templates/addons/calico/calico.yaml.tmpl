@@ -1,0 +1,528 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-system
+---
+# Calico ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: calico-kube-controllers
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  - namespaces
+  - services
+  - endpoints
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - nodes
+  - namespaces
+  - services
+  - endpoints
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - crd.projectcalico.org
+  resources:
+  - clusterinformations
+  - felixconfigurations
+  - globalnetworkpolicies
+  - globalnetworksets
+  - ippools
+  - kubecontrollersconfigurations
+  - networkpolicies
+  - networksets
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: calico-kube-controllers
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: calico-kube-controllers
+subjects:
+- kind: ServiceAccount
+  name: calico-kube-controllers
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: calico-node
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - nodes
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  - endpoints
+  verbs:
+  - get
+  - watch
+  - list
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: calico-node
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: calico-node
+subjects:
+- kind: ServiceAccount
+  name: calico-node
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: calico-node
+  namespace: kube-system
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: calico-node
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: calico-node
+subjects:
+- kind: ServiceAccount
+  name: calico-node
+  namespace: kube-system
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: calico-node
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      k8s-app: calico-node
+  template:
+    metadata:
+      labels:
+        k8s-app: calico-node
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/os
+                operator: In
+                values:
+                - linux
+      containers:
+      - env:
+        - name: CALICO_DISABLE_FILE_LOGGING
+          value: "true"
+        - name: DATASTORE_TYPE
+          value: kubernetes
+        - name: FELIX_DEFAULTENDPOINTTOTYPEACTION
+          value: Accept
+        - name: FELIX_HEALTHENABLED
+          value: "true"
+        - name: FELIX_LOGSEVERITYSCREEN
+          value: info
+        - name: FELIX_LOGSEVERITYSYS
+          value: none
+        - name: FELIX_PROMETHEUSMETRICSENABLED
+          value: "false"
+        - name: FELIX_USEREADYIP
+          value: "true"
+        - name: FELIX_WIREGUARDENABLED
+          value: "true"
+        - name: FELIX_WIREGUARDINTERFACENAME
+          value: wireguard.cali
+        - name: FELIX_WIREGUARDMESHHEALTHNAME
+          value: calico-wireguard-health
+        - name: FELIX_WIREGUARDMTU
+          value: "1420"
+        - name: IP
+          value: autodetect
+        - name: IP_AUTODETECTION_METHOD
+          value: can-reach=${NODE_IP}
+        - name: IP6
+          value: none
+        - name: NODENAME
+          value: ""
+        - name: NO_DEFAULT_POOLS
+          value: "true"
+        - name: STARTUP_LOGLEVEL
+          value: Info
+        - name: WAIT_FOR_DATASTORE
+          value: "true"
+        image: ${IMAGE_REGISTRY:-}calico/cni:${CALICO_VERSION}
+        imagePullPolicy: IfPresent
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: 9099
+          periodSeconds: 10
+          readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 9099
+          periodSeconds: 10
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /lib/modules
+          name: lib-modules
+          readOnly: true
+        - mountPath: /run/xtables.lock
+          name: xtables-lock
+        - mountPath: /sys/fs/
+          name: sys-fs
+          mountPropagation: Bidirectional
+        - mountPath: /var/lib/calico
+          name: var-lib-calico
+          mountPropagation: Bidirectional
+        - mountPath: /var/run/calico
+          name: var-run-calico
+          mountPropagation: Bidirectional
+      - env:
+        - name: CALICO_DISABLE_FILE_LOGGING
+          value: "true"
+        - name: FELIX_DEFAULTENDPOINTTOTYPEACTION
+          value: Accept
+        - name: FELIX_HEALTHENABLED
+          value: "true"
+        - name: FELIX_LOGSEVERITYSCREEN
+          value: info
+        - name: FELIX_LOGSEVERITYSYS
+          value: none
+        - name: FELIX_PROMETHEUSMETRICSENABLED
+          value: "false"
+        - name: FELIX_USEREADYIP
+          value: "true"
+        - name: IP
+          value: autodetect
+        - name: IP6
+          value: none
+        - name: NODENAME
+          value: ""
+        - name: STARTUP_LOGLEVEL
+          value: Info
+        image: ${IMAGE_REGISTRY:-}calico/pod2daemon-flexvol:${CALICO_VERSION}
+        imagePullPolicy: IfPresent
+        livenessProbe:
+          exec:
+            command:
+            - /calico-pod-daemon-health
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - /calico-pod-daemon-health
+          periodSeconds: 10
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /host/driver
+          name: flexvol-driver-host
+        - mountPath: /var/lib/calico
+          name: var-lib-calico
+          mountPropagation: Bidirectional
+      - env:
+        - name: DATASTORE_TYPE
+          value: kubernetes
+        - name: FELIX_HEALTHENABLED
+          value: "true"
+        - name: IP_AUTODETECTION_METHOD
+          value: can-reach=${NODE_IP}
+        - name: NODENAME
+          value: ""
+        - name: STARTUP_LOGLEVEL
+          value: Info
+        image: ${IMAGE_REGISTRY:-}calico/node:${CALICO_VERSION}
+        imagePullPolicy: IfPresent
+        livenessProbe:
+          exec:
+            command:
+            - /bin/calico-node
+            - -felix-live
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - /bin/calico-node
+            - -bird-ready
+            - -felix-ready
+          periodSeconds: 10
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /lib/modules
+          name: lib-modules
+          readOnly: true
+        - mountPath: /run/xtables.lock
+          name: xtables-lock
+        - mountPath: /sys/fs/
+          name: sys-fs
+          mountPropagation: Bidirectional
+        - mountPath: /var/lib/calico
+          name: var-lib-calico
+          mountPropagation: Bidirectional
+        - mountPath: /var/run/calico
+          name: var-run-calico
+          mountPropagation: Bidirectional
+        - mountPath: /var/lib/cni/networks
+          name: cni-net-dir
+        - mountPath: /host/etc/cni/net.d
+          name: cni-net-dir
+      hostNetwork: true
+      nodeSelector:
+        kubernetes.io/os: linux
+      priorityClassName: system-node-critical
+      serviceAccountName: calico-node
+      tolerations:
+      - effect: NoSchedule
+        operator: Exists
+      - key: CriticalAddonsOnly
+        operator: Exists
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      volumes:
+      - hostPath:
+          path: /lib/modules
+        name: lib-modules
+      - hostPath:
+          path: /run/xtables.lock
+        name: xtables-lock
+      - hostPath:
+          path: /sys/fs
+          name: sys-fs
+      - hostPath:
+          path: /var/lib/calico
+        name: var-lib-calico
+      - hostPath:
+          path: /var/run/calico
+        name: var-run-calico
+      - hostPath:
+          path: /var/lib/cni/networks
+        name: cni-net-dir
+      - hostPath:
+          path: /host/etc/cni/net.d
+        name: cni-net-dir
+      - hostPath:
+          path: /var/lib/kubelet/pods
+          name: kubelet-pods
+      - hostPath:
+          path: /usr/local/lib/flexvol
+        name: flexvol-driver-host
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: calico-kube-controllers
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      k8s-app: calico-kube-controllers
+  template:
+    metadata:
+      labels:
+        k8s-app: calico-kube-controllers
+    spec:
+      containers:
+      - env:
+        - name: DATASTORE_TYPE
+          value: kubernetes
+        - name: FELIX_HEALTHENABLED
+          value: "true"
+        - name: STARTUP_LOGLEVEL
+          value: Info
+        image: ${IMAGE_REGISTRY:-}calico/kube-controllers:${CALICO_VERSION}
+        imagePullPolicy: IfPresent
+        livenessProbe:
+          exec:
+            command:
+            - /usr/bin/check-status
+            - -l
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - /usr/bin/check-status
+            - -r
+          periodSeconds: 10
+      nodeSelector:
+        kubernetes.io/os: linux
+      priorityClassName: system-cluster-critical
+      serviceAccountName: calico-kube-controllers
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
+        operator: Exists
+      - key: CriticalAddonsOnly
+        operator: Exists
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: calico-kube-controllers
+  namespace: kube-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: calico-node
+  namespace: kube-system
+---
+# Default ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: calico-config
+  namespace: kube-system
+data:
+  cni_network_config: |
+    {
+      "name": "k8s-pod-network",
+      "cniVersion": "0.3.1",
+      "plugins": [
+        {
+          "type": "calico",
+          "log_level": "INFO",
+          "log_file_path": "/var/log/calico/cni.log",
+          "datastore_type": "kubernetes",
+          "nodename": "__KUBERNETES_NODE_NAME__",
+          "mtu": 1420,
+          "ipam": {
+              "type": "host-local",
+              "subnet": "usePodCidr"
+          },
+          "policy": {
+              "type": "k8s"
+          },
+          "kubernetes": {
+              "kubeconfig": "__KUBECONFIG_FILEPATH__"
+          }
+        },
+        {
+          "type": "portmap",
+          "snat": true,
+          "capabilities": {
+            "portMappings": true
+          }
+        },
+        {
+          "type": "bandwidth",
+          "capabilities": {
+            "bandwidth": true
+          }
+        }
+      ]
+    }
+---
+apiVersion: crd.projectcalico.org/v1
+kind: IPPool
+metadata:
+  name: default-ipv4-ippool
+spec:
+  cidr: ${POD_CIDR}
+  blockSize: ${CALICO_BLOCK_SIZE:-26}
+  ipipMode: ${CALICO_IPIP_MODE:-Never}
+  vxlanMode: ${CALICO_VXLAN_MODE:-Never}
+  natOutgoing: true
+  disabled: false
+  nodeSelector: all()
+

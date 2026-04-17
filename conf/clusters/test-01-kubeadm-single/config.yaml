@@ -1,0 +1,36 @@
+# ==============================================================================
+# 测试配置 01 - kubeadm 单节点
+# ==============================================================================
+# 说明：单节点部署，无需负载均衡
+# ==============================================================================
+
+apiVersion: kubexm.io/v1
+kind: Config
+metadata:
+  name: test-01-kubeadm-single
+spec:
+  mode: offline
+  arch:
+    - amd64
+  kubernetes:
+    type: kubeadm
+    version: v1.32.4
+    service_cidr: 10.96.0.0/12
+    pod_cidr: 10.244.0.0/16
+    cluster_domain: cluster.local
+
+  etcd:
+    type: kubeadm
+    data_dir: /var/lib/etcd
+
+  runtime:
+    type: containerd
+    version: v1.7.13
+    cgroup_driver: systemd
+
+  network:
+    plugin: calico
+    interface: "eth.*"
+
+  logging:
+    level: info

@@ -1,0 +1,716 @@
+#!/usr/bin/env bash
+
+# ==============================================================================
+# KubeXM Agent - 节点代理脚本
+# ==============================================================================
+# 用于在远程节点上执行集群管理操作
+# 此脚本会被复制到目标节点并执行
+#
+# 用法: kubexm-agent <action> [options]
+#
+# Actions:
+#   init-system          初始化系统配置
+#   install-runtime      安装容器运行时
+#   install-kubernetes   安装Kubernetes组件
+#   join-cluster         加入集群
+#   leave-cluster        离开集群
+#   renew-certs          续期证书
+#   cleanup              清理节点
+# ==============================================================================
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+# 版本信息
+AGENT_VERSION="0.1.0"
+
+# 颜色定义
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+#######################################
+# 日志函数
+#######################################
+log::info() {
+  echo -e "${BLUE}[INFO]${NC} $*"
+}
+
+log::success() {
+  echo -e "${GREEN}[SUCCESS]${NC} $*"
+}
+
+log::warn() {
+  echo -e "${YELLOW}[WARN]${NC} $*"
+}
+
+log::error() {
+  echo -e "${RED}[ERROR]${NC} $*" >&2
+}
+
+#######################################
+# 检测操作系统
+#######################################
+detect_os() {
+  if [[ -f /etc/os-release ]]; then
+    . /etc/os-release
+    echo "${ID}${VERSION_ID}"
+  elif [[ -f /etc/redhat-release ]]; then
+    echo "rhel$(cat /etc/redhat-release | grep -oE '[0-9]+' | head -1)"
+  else
+    echo "unknown"
+  fi
+}
+
+#######################################
+# 检测系统架构
+#######################################
+detect_arch() {
+  local arch
+  arch=$(uname -m)
+  case "$arch" in
+    x86_64)  echo "amd64" ;;
+    aarch64) echo "arm64" ;;
+    *)       echo "$arch" ;;
+  esac
+}
+
+#######################################
+# 初始化系统配置
+#######################################
+action_init_system() {
+  log::info "初始化系统配置..."
+
+  # 1. 禁用swap
+  log::info "禁用swap..."
+  swapoff -a || true
+  sed -i '/^[^#]*swap/s/^/#/' /etc/fstab
+
+  # 2. 禁用SELinux
+  log::info "禁用SELinux..."
+  if [[ -f /etc/selinux/config ]]; then
+    sed -ri 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config
+  fi
+  if command -v setenforce &>/dev/null; then
+    setenforce 0 2>/dev/null || true
+  fi
+
+  # 3. 关闭防火墙
+  log::info "关闭防火墙..."
+  if systemctl is-active --quiet firewalld 2>/dev/null; then
+    systemctl stop firewalld
+    systemctl disable firewalld
+  fi
+  if systemctl is-active --quiet ufw 2>/dev/null; then
+    systemctl stop ufw
+    systemctl disable ufw
+  fi
+
+  # 4. 加载内核模块
+  log::info "加载内核模块..."
+  cat > /etc/modules-load.d/kubernetes.conf << EOF
+overlay
+br_netfilter
+ip_vs
+ip_vs_rr
+ip_vs_wrr
+ip_vs_sh
+nf_conntrack
+EOF
+
+  modprobe overlay
+  modprobe br_netfilter
+  modprobe ip_vs
+  modprobe ip_vs_rr
+  modprobe ip_vs_wrr
+  modprobe ip_vs_sh
+  modprobe nf_conntrack || modprobe nf_conntrack_ipv4 || true
+
+  # 5. 设置内核参数
+  log::info "设置内核参数..."
+  cat > /etc/sysctl.d/99-kubernetes.conf << EOF
+# 网络基础与转发
+net.ipv4.ip_forward = 1
+net.bridge.bridge-nf-call-arptables = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+
+# ARP表扩容
+net.ipv4.neigh.default.gc_thresh1 = 4096
+net.ipv4.neigh.default.gc_thresh2 = 8192
+net.ipv4.neigh.default.gc_thresh3 = 65536
+
+# Conntrack扩容
+net.netfilter.nf_conntrack_max = 2097152
+net.netfilter.nf_conntrack_tcp_timeout_established = 86400
+
+# 文件系统
+fs.inotify.max_user_instances = 8192
+fs.inotify.max_user_watches = 1048576
+fs.file-max = 10000000
+
+# 进程与内存
+kernel.pid_max = 4194303
+vm.max_map_count = 524288
+vm.swappiness = 1
+
+# 高并发网络优化
+net.core.somaxconn = 32768
+net.core.netdev_max_backlog = 32768
+net.ipv4.tcp_max_syn_backlog = 16384
+net.ipv4.ip_local_port_range = 1024 65000
+
+# K8s Service预留端口
+net.ipv4.ip_local_reserved_ports = 30000-32767
+EOF
+
+  sysctl --system
+
+  # 6. 设置时区
+  log::info "设置时区..."
+  timedatectl set-timezone Asia/Shanghai || true
+
+  log::success "系统配置初始化完成"
+}
+
+#######################################
+# 安装容器运行时
+#######################################
+action_install_runtime() {
+  local runtime="${KUBEXM_RUNTIME:-containerd}"
+  local runtime_version="${KUBEXM_RUNTIME_VERSION:-v1.7.13}"
+  local packages_dir="${KUBEXM_PACKAGES_DIR:-/tmp/kubexm/packages}"
+
+  log::info "安装容器运行时: $runtime $runtime_version"
+
+  case "$runtime" in
+    containerd)
+      install_containerd "$runtime_version" "$packages_dir"
+      ;;
+    docker)
+      install_docker "$packages_dir"
+      ;;
+    cri-o|crio)
+      install_crio "$runtime_version" "$packages_dir"
+      ;;
+    *)
+      log::error "不支持的运行时: $runtime"
+      exit 1
+      ;;
+  esac
+}
+
+#######################################
+# 安装containerd
+#######################################
+install_containerd() {
+  local version="$1"
+  local packages_dir="$2"
+  local arch
+  arch=$(detect_arch)
+
+  log::info "安装containerd..."
+
+  # 解压二进制文件
+  local containerd_tar="${packages_dir}/containerd/containerd-${version#v}-linux-${arch}.tar.gz"
+  if [[ -f "$containerd_tar" ]]; then
+    tar -xzf "$containerd_tar" -C /usr/local
+  else
+    log::warn "containerd二进制包不存在: $containerd_tar"
+    log::info "尝试在线下载..."
+    curl -L "https://github.com/containerd/containerd/releases/download/${version}/containerd-${version#v}-linux-${arch}.tar.gz" | tar -xz -C /usr/local
+  fi
+
+  # 安装runc
+  local runc_bin="${packages_dir}/runc/runc.${arch}"
+  if [[ -f "$runc_bin" ]]; then
+    install -m 755 "$runc_bin" /usr/local/sbin/runc
+  else
+    log::warn "runc二进制包不存在"
+    curl -L "https://github.com/opencontainers/runc/releases/download/v1.1.12/runc.${arch}" -o /usr/local/sbin/runc
+    chmod +x /usr/local/sbin/runc
+  fi
+
+  # 创建配置目录
+  mkdir -p /etc/containerd
+
+  # 生成默认配置
+  containerd config default > /etc/containerd/config.toml
+
+  # 修改cgroup驱动为systemd
+  sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+
+  # 创建systemd服务
+  cat > /etc/systemd/system/containerd.service << 'EOF'
+[Unit]
+Description=containerd container runtime
+Documentation=https://containerd.io
+After=network.target local-fs.target
+
+[Service]
+ExecStartPre=-/sbin/modprobe overlay
+ExecStart=/usr/local/bin/containerd
+Type=notify
+Delegate=yes
+KillMode=process
+Restart=always
+RestartSec=5
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+OOMScoreAdjust=-999
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable containerd
+  systemctl start containerd
+
+  log::success "containerd安装完成"
+}
+
+#######################################
+# 安装Docker
+#######################################
+install_docker() {
+  local packages_dir="$1"
+
+  log::info "安装Docker..."
+
+  # 尝试离线安装
+  local docker_tar="${packages_dir}/docker/docker.tgz"
+  if [[ -f "$docker_tar" ]]; then
+    tar -xzf "$docker_tar" -C /usr/local/bin --strip-components=1
+  else
+    log::warn "Docker二进制包不存在，尝试在线安装..."
+    curl -fsSL https://get.docker.com | sh
+  fi
+
+  # 创建Docker配置
+  mkdir -p /etc/docker
+  cat > /etc/docker/daemon.json << EOF
+{
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "100m",
+    "max-file": "5"
+  },
+  "storage-driver": "overlay2",
+  "live-restore": true
+}
+EOF
+
+  systemctl daemon-reload
+  systemctl enable docker
+  systemctl start docker
+
+  log::success "Docker安装完成"
+}
+
+#######################################
+# 安装cri-o
+#######################################
+install_crio() {
+  local version="$1"
+  local packages_dir="$2"
+
+  log::info "安装CRI-O..."
+
+  local crio_tar="${packages_dir}/cri-o/cri-o.$(detect_arch).${version}.tar.gz"
+  if [[ -f "$crio_tar" ]]; then
+    tar -xzf "$crio_tar" -C /usr/local
+    /usr/local/bin/crio config default > /etc/crio/crio.conf
+  else
+    log::error "CRI-O二进制包不存在: $crio_tar"
+    exit 1
+  fi
+
+  systemctl daemon-reload
+  systemctl enable crio
+  systemctl start crio
+
+  log::success "CRI-O安装完成"
+}
+
+#######################################
+# 安装Kubernetes组件
+#######################################
+action_install_kubernetes() {
+  local version="${KUBEXM_K8S_VERSION:-v1.32.4}"
+  local packages_dir="${KUBEXM_PACKAGES_DIR:-/tmp/kubexm/packages}"
+  local arch
+  arch=$(detect_arch)
+
+  log::info "安装Kubernetes $version"
+
+  local bin_dir="/usr/local/bin"
+  mkdir -p "$bin_dir"
+
+  # 安装kubelet
+  local kubelet_bin="${packages_dir}/kubernetes/${version}/kubelet-linux-${arch}"
+  if [[ -f "$kubelet_bin" ]]; then
+    install -m 755 "$kubelet_bin" "$bin_dir/kubelet"
+  else
+    log::info "下载kubelet..."
+    curl -L "https://dl.k8s.io/release/${version}/bin/linux/${arch}/kubelet" -o "$bin_dir/kubelet"
+    chmod +x "$bin_dir/kubelet"
+  fi
+
+  # 安装kubeadm
+  local kubeadm_bin="${packages_dir}/kubernetes/${version}/kubeadm-linux-${arch}"
+  if [[ -f "$kubeadm_bin" ]]; then
+    install -m 755 "$kubeadm_bin" "$bin_dir/kubeadm"
+  else
+    log::info "下载kubeadm..."
+    curl -L "https://dl.k8s.io/release/${version}/bin/linux/${arch}/kubeadm" -o "$bin_dir/kubeadm"
+    chmod +x "$bin_dir/kubeadm"
+  fi
+
+  # 安装kubectl
+  local kubectl_bin="${packages_dir}/kubernetes/${version}/kubectl-linux-${arch}"
+  if [[ -f "$kubectl_bin" ]]; then
+    install -m 755 "$kubectl_bin" "$bin_dir/kubectl"
+  else
+    log::info "下载kubectl..."
+    curl -L "https://dl.k8s.io/release/${version}/bin/linux/${arch}/kubectl" -o "$bin_dir/kubectl"
+    chmod +x "$bin_dir/kubectl"
+  fi
+
+  # 配置kubelet服务
+  mkdir -p /etc/systemd/system/kubelet.service.d
+  cat > /etc/systemd/system/kubelet.service << 'EOF'
+[Unit]
+Description=kubelet: The Kubernetes Node Agent
+Documentation=https://kubernetes.io/docs/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/kubelet
+Restart=always
+StartLimitInterval=0
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable kubelet
+
+  log::success "Kubernetes组件安装完成"
+}
+
+#######################################
+# 加入集群
+#######################################
+action_join_cluster() {
+  local join_command="${KUBEXM_JOIN_COMMAND:-}"
+
+  if [[ -z "$join_command" ]]; then
+    log::error "缺少加入集群命令，请设置 KUBEXM_JOIN_COMMAND 环境变量"
+    exit 1
+  fi
+
+  log::info "加入集群..."
+  eval "$join_command"
+
+  log::success "节点已加入集群"
+}
+
+#######################################
+# 离开集群
+#######################################
+action_leave_cluster() {
+  log::info "离开集群..."
+
+  # 获取节点名称
+  local node_name
+  node_name=$(hostname)
+
+  # 驱逐Pod
+  kubectl drain "$node_name" --ignore-daemonsets --delete-emptydir-data --force 2>/dev/null || true
+
+  # 重置kubeadm
+  kubeadm reset --force 2>/dev/null || true
+
+  log::success "节点已离开集群"
+}
+
+#######################################
+# 续期证书
+#######################################
+action_renew_certs() {
+  local cert_type="${KUBEXM_CERT_TYPE:-all}"
+
+  log::info "续期证书: $cert_type"
+
+  case "$cert_type" in
+    kubernetes-ca)
+      log::info "续期Kubernetes CA证书..."
+      renew_kubernetes_ca
+      ;;
+    etcd-ca)
+      log::info "续期etcd CA证书..."
+      renew_etcd_ca
+      ;;
+    kubernetes-certs)
+      log::info "续期Kubernetes叶子证书..."
+      kubeadm certs renew all
+      ;;
+    etcd-certs)
+      log::info "续期etcd叶子证书..."
+      kubeadm certs renew etcd-server
+      kubeadm certs renew etcd-peer
+      kubeadm certs renew etcd-healthcheck-client
+      ;;
+    all)
+      log::info "续期所有证书..."
+      kubeadm certs renew all
+      ;;
+    *)
+      log::error "未知证书类型: $cert_type"
+      exit 1
+      ;;
+  esac
+
+  log::success "证书续期完成"
+}
+
+#######################################
+# 续期 Kubernetes CA 证书
+# 警告：这是一个高风险操作，需要在所有控制平面节点上执行
+#######################################
+renew_kubernetes_ca() {
+  local pki_dir="/etc/kubernetes/pki"
+  local backup_dir="/etc/kubernetes/pki.backup.$(date +%Y%m%d%H%M%S)"
+  
+  log::warn "CA证书续期是高风险操作，需要在所有控制平面节点上执行相同操作"
+  log::info "正在备份现有证书到: ${backup_dir}"
+  
+  # 1. 备份现有证书
+  cp -a "${pki_dir}" "${backup_dir}"
+  
+  # 2. 生成新的CA证书（保持私钥不变以减少影响）
+  local ca_key="${pki_dir}/ca.key"
+  local ca_crt="${pki_dir}/ca.crt"
+  
+  if [[ ! -f "${ca_key}" ]]; then
+    log::error "CA私钥不存在: ${ca_key}"
+    return 1
+  fi
+  
+  # 获取原CA的有效期（默认10年）
+  local validity_days="${KUBEXM_CA_VALIDITY_DAYS:-3650}"
+  
+  # 使用现有私钥重新签发CA证书
+  log::info "使用现有私钥重新签发CA证书..."
+  openssl req -x509 -new -nodes \
+    -key "${ca_key}" \
+    -sha256 \
+    -days "${validity_days}" \
+    -out "${ca_crt}.new" \
+    -subj "/CN=kubernetes-ca" \
+    -addext "basicConstraints=critical,CA:TRUE" \
+    -addext "keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign"
+  
+  if [[ $? -ne 0 ]]; then
+    log::error "生成新CA证书失败"
+    log::info "恢复备份..."
+    cp -a "${backup_dir}"/* "${pki_dir}/"
+    return 1
+  fi
+  
+  # 3. 替换CA证书
+  mv "${ca_crt}.new" "${ca_crt}"
+  
+  # 4. 重新签发所有叶子证书
+  log::info "重新签发所有叶子证书..."
+  kubeadm certs renew all
+  
+  # 5. 更新 kubeconfig 文件中的 CA 数据
+  log::info "更新 kubeconfig 文件..."
+  for config_file in /etc/kubernetes/*.conf; do
+    if [[ -f "${config_file}" ]]; then
+      kubeadm init phase kubeconfig "${config_file##*/}" --config /etc/kubernetes/kubeadm-config.yaml 2>/dev/null || true
+    fi
+  done
+  
+  log::success "Kubernetes CA证书续期完成"
+  log::warn "请重启所有控制平面组件以使新证书生效"
+  log::info "  kubectl delete pods -n kube-system -l tier=control-plane"
+}
+
+#######################################
+# 续期 etcd CA 证书
+# 警告：这需要在所有 etcd 节点上执行相同操作
+#######################################
+renew_etcd_ca() {
+  local etcd_pki_dir="/etc/kubernetes/pki/etcd"
+  local backup_dir="/etc/kubernetes/pki/etcd.backup.$(date +%Y%m%d%H%M%S)"
+  
+  log::warn "etcd CA证书续期是高风险操作"
+  log::info "正在备份现有证书到: ${backup_dir}"
+  
+  # 1. 备份
+  cp -a "${etcd_pki_dir}" "${backup_dir}"
+  
+  local ca_key="${etcd_pki_dir}/ca.key"
+  local ca_crt="${etcd_pki_dir}/ca.crt"
+  
+  if [[ ! -f "${ca_key}" ]]; then
+    log::error "etcd CA私钥不存在: ${ca_key}"
+    return 1
+  fi
+  
+  local validity_days="${KUBEXM_CA_VALIDITY_DAYS:-3650}"
+  
+  # 2. 使用现有私钥重新签发
+  log::info "使用现有私钥重新签发etcd CA证书..."
+  openssl req -x509 -new -nodes \
+    -key "${ca_key}" \
+    -sha256 \
+    -days "${validity_days}" \
+    -out "${ca_crt}.new" \
+    -subj "/CN=etcd-ca" \
+    -addext "basicConstraints=critical,CA:TRUE" \
+    -addext "keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign"
+  
+  if [[ $? -ne 0 ]]; then
+    log::error "生成新etcd CA证书失败"
+    cp -a "${backup_dir}"/* "${etcd_pki_dir}/"
+    return 1
+  fi
+  
+  mv "${ca_crt}.new" "${ca_crt}"
+  
+  # 3. 重新签发 etcd 叶子证书
+  log::info "重新签发etcd叶子证书..."
+  kubeadm certs renew etcd-server
+  kubeadm certs renew etcd-peer
+  kubeadm certs renew etcd-healthcheck-client
+  kubeadm certs renew apiserver-etcd-client
+  
+  log::success "etcd CA证书续期完成"
+  log::warn "请重启 etcd 服务以使新证书生效"
+}
+
+#######################################
+# 清理节点
+#######################################
+action_cleanup() {
+  log::info "清理节点..."
+
+  # 1. 重置kubeadm
+  kubeadm reset --force 2>/dev/null || true
+
+  # 2. 清理网络
+  iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X
+  ip link delete cni0 2>/dev/null || true
+  ip link delete flannel.1 2>/dev/null || true
+  ip link delete tunl0 2>/dev/null || true
+
+  # 3. 清理文件
+  rm -rf /etc/kubernetes
+  rm -rf /var/lib/kubelet
+  rm -rf /var/lib/etcd
+  rm -rf /etc/cni/net.d
+  rm -rf ~/.kube
+
+  # 4. 停止容器运行时
+  if systemctl is-active --quiet containerd 2>/dev/null; then
+    systemctl stop containerd
+  fi
+  if systemctl is-active --quiet docker 2>/dev/null; then
+    docker system prune -af 2>/dev/null || true
+    systemctl stop docker
+  fi
+
+  log::success "节点清理完成"
+}
+
+#######################################
+# 显示帮助
+#######################################
+show_help() {
+  cat << 'EOF'
+KubeXM Agent - 节点代理脚本
+
+用法: kubexm-agent <action> [options]
+
+Actions:
+  init-system          初始化系统配置
+  install-runtime      安装容器运行时
+  install-kubernetes   安装Kubernetes组件
+  join-cluster         加入集群
+  leave-cluster        离开集群
+  renew-certs          续期证书
+  cleanup              清理节点
+  version              显示版本
+
+环境变量:
+  KUBEXM_RUNTIME           容器运行时 (containerd|docker|cri-o)
+  KUBEXM_RUNTIME_VERSION   运行时版本
+  KUBEXM_K8S_VERSION       Kubernetes版本
+  KUBEXM_PACKAGES_DIR      离线包目录
+  KUBEXM_JOIN_COMMAND      加入集群命令
+  KUBEXM_CERT_TYPE         证书类型
+EOF
+}
+
+#######################################
+# 主函数
+#######################################
+main() {
+  if [[ $# -eq 0 ]]; then
+    show_help
+    exit 0
+  fi
+
+  local action="$1"
+  shift
+
+  case "$action" in
+    init-system)
+      action_init_system
+      ;;
+    install-runtime)
+      action_install_runtime
+      ;;
+    install-kubernetes)
+      action_install_kubernetes
+      ;;
+    join-cluster)
+      action_join_cluster
+      ;;
+    leave-cluster)
+      action_leave_cluster
+      ;;
+    renew-certs)
+      action_renew_certs
+      ;;
+    cleanup)
+      action_cleanup
+      ;;
+    version)
+      echo "kubexm-agent version ${AGENT_VERSION}"
+      ;;
+    help|-h|--help)
+      show_help
+      ;;
+    *)
+      log::error "未知操作: $action"
+      show_help
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

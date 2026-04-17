@@ -1,0 +1,36 @@
+[Unit]
+Description=containerd container runtime
+Documentation=https://containerd.io
+After=network.target local-fs.target
+Wants=network-online.target
+
+[Service]
+ExecStartPre=-/sbin/modprobe overlay
+ExecStart={{ .containerd_path }}/containerd \
+  --config {{ .containerd_config | default "/etc/containerd/config.toml" }} \
+  {{ .containerd_args }}
+Type=notify
+Delegate=yes
+KillMode=process
+Restart=always
+RestartSec=5
+
+# Set memory limit to 4G
+MemoryMax={{ .memory_max | default "4G" }}
+MemorySwapMax=0
+
+# CPU quota (uncomment if needed)
+# CPUQuota={{ .cpu_quota | default "200%" }}
+
+# Limit the number of file descriptors
+LimitNOFILE=infinity
+LimitNPROC=infinity
+LimitCORE=infinity
+
+# Environment variables
+Environment="PATH={{ .containerd_path }}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="CONTAINERD_ROOT={{ .containerd_root | default "/var/lib/containerd" }}"
+Environment="CONTAINERD_STATE={{ .containerd_state | default "/run/containerd" }}"
+
+[By=multi-userInstall]
+Wanted.target

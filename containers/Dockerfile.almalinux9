@@ -1,0 +1,37 @@
+# KubeXM Build Container - AlmaLinux 9
+# Purpose: Build RPM packages and local repository for AlmaLinux 9
+
+FROM almalinux:9
+
+LABEL maintainer="KubeXM Team"
+LABEL description="AlmaLinux 9 build environment for KubeXM offline packages"
+LABEL os.type="almalinux"
+LABEL os.version="9"
+LABEL pkg.manager="dnf"
+
+# Install EPEL repository
+RUN dnf install -y epel-release
+
+# Install build tools
+RUN dnf install -y \
+    dnf-utils \
+    createrepo_c \
+    rpm-build \
+    wget \
+    curl \
+    tar \
+    gzip \
+    xz \
+    && dnf clean all
+
+# Create build directories
+RUN mkdir -p /build/packages /build/repo /build/output
+
+WORKDIR /build
+
+# Copy build scripts
+COPY scripts/build-rpm.sh /build/
+RUN chmod +x /build/build-rpm.sh
+
+# Default command
+CMD ["/bin/bash"]

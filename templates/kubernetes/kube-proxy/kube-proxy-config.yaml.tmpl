@@ -1,0 +1,41 @@
+# ==============================================================================
+# Kubernetes Kube-Proxy Configuration Template
+# ==============================================================================
+# Generated from template - Do not edit manually
+# Cluster: ${CLUSTER_NAME}
+# Node: ${NODE_NAME}
+# ==============================================================================
+
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+clientConnection:
+  kubeconfig: "/etc/kubernetes/kube-proxy.kubeconfig"
+  acceptContentTypes: application/json
+  contentType: application/vnd.kubernetes.protobuf
+clusterCIDR: ${POD_CIDR}
+healthzBindAddress: ${KUBE_PROXY_HEALTHZ_BIND_ADDRESS:-127.0.0.1:10256}
+metricsBindAddress: ${KUBE_PROXY_METRICS_BIND_ADDRESS:-127.0.0.1:10249}
+bindAddress: ${KUBE_PROXY_BIND_ADDRESS:-0.0.0.0}
+enableDSR: ${KUBE_PROXY_ENABLE_DSR:-false}
+iptables:
+  masqueradeAll: ${PROXY_IPTABLES_MASQUERADE_ALL:-false}
+  masqueradeBit: ${PROXY_IPTABLES_MASQUERADE_BIT:-14}
+  minSyncPeriod: ${PROXY_IPTABLES_MIN_SYNC_PERIOD:-0s}
+  syncPeriod: ${PROXY_IPTABLES_SYNC_PERIOD:-30s}
+  localhostNodePorts: ${PROXY_IPTABLES_LOCALHOST_NODE_PORTS:-true}
+ipvs:
+  scheduler: ${PROXY_IPVS_SCHEDULER:-rr}
+  syncPeriod: ${PROXY_IPVS_SYNC_PERIOD:-30s}
+  minSyncPeriod: ${PROXY_IPVS_MIN_SYNC_PERIOD:-0s}
+  excludeCIDRs: ${PROXY_IPVS_EXCLUDE_CIDRS}
+  strictARP: ${PROXY_IPVS_STRICT_ARP:-false}
+mode: ${PROXY_MODE:-iptables}
+nodePortAddresses: ${PROXY_NODE_PORT_ADDRESSES}
+oomScoreAdj: ${PROXY_OOM_SCORE_ADJ:--999}
+portRange: ${PROXY_PORT_RANGE:-}
+conntrack:
+  maxPerCore: ${PROXY_CONNTRACK_MAX_PER_CORE:-32768}
+  min: ${PROXY_CONNTRACK_MIN:-131072}
+  tcpEstablishedTimeout: ${PROXY_CONNTRACK_TCP_ESTABLISHED_TIMEOUT:-86400s}
+  tcpCloseWaitTimeout: ${PROXY_CONNTRACK_TCP_CLOSE_WAIT_TIMEOUT:-1h00m00s}
+configSyncPeriod: ${PROXY_CONFIG_SYNC_PERIOD:-15m0s}

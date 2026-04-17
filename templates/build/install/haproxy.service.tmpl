@@ -1,0 +1,27 @@
+[Unit]
+Description=HAProxy Load Balancer
+Documentation=https://www.haproxy.org/
+After=network-online.target
+Wants=network-online.target systemd-networkd.service
+ConditionFileNotEmpty=/etc/haproxy/haproxy.cfg
+
+[Service]
+Environment=CONFIG=/etc/haproxy/haproxy.cfg
+Environment=PIDFILE=/run/haproxy.pid
+
+ExecStartPre=/usr/sbin/haproxy -f $CONFIG -c -q
+ExecStart=/usr/sbin/haproxy -f $CONFIG -W -p $PIDFILE
+ExecReload=/usr/sbin/haproxy -f $CONFIG -c -q
+ExecReload=/bin/kill -USR2 $MAINPID
+KillMode=mixed
+KillSignal=SIGTERM
+Type=notify
+Restart=on-failure
+RestartSec=5
+
+# Resource limits
+MemoryMax={{ .memory_max | default "512M" }}
+CPUQuota={{ .cpu_quota | default "100%" }}
+
+[Install]
+WantedBy=multi-user.target

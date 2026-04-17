@@ -1,0 +1,19 @@
+[Unit]
+Description=Docker Registry
+Documentation=https://docs.docker.com/registry/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${REGISTRY_DATA_DIR:-/var/lib/registry}
+ExecStart=/usr/local/bin/registry serve /etc/registry/config.yml
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

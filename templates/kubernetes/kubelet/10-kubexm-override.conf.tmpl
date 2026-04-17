@@ -1,0 +1,14 @@
+# ==============================================================================
+# Kubelet Drop-in Configuration for Binary Deployment
+# ==============================================================================
+# Generated from template - Do not edit manually
+# Cluster: ${CLUSTER_NAME}
+# Node: ${NODE_NAME}
+# ==============================================================================
+
+[Service]
+Environment="KUBELET_KUBECONFIG_ARGS=--kubeconfig=/etc/kubernetes/kubelet.kubeconfig"
+Environment="KUBELET_CONFIG_ARGS=--config=/var/lib/kubelet/config.yaml"
+Environment="KUBELET_EXTRA_ARGS=--node-ip=${NODE_IP} --hostname-override=${NODE_NAME}"
+ExecStart=
+ExecStart=/usr/local/bin/kubelet $KUBELET_KUBECONFIG_ARGS $KUBELET_CONFIG_ARGS $KUBELET_EXTRA_ARGS

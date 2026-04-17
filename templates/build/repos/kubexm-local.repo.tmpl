@@ -1,0 +1,17 @@
+[kubexm-local]
+name=KubeXM Local Repository
+baseurl={{ .repo_url }}
+enabled=1
+gpgcheck=0
+priority={{ .priority | default 1 }}
+module_hotfixes=1
+skip_if_unavailable=0
+timeout=60
+metadata_expire=0
+
+[kubexm-local-source]
+name=KubeXM Local Repository - Source
+baseurl={{ .repo_url }}/SRPMS
+enabled=0
+gpgcheck=0
+priority={{ .priority | default 1 }}

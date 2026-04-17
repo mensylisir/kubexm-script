@@ -1,0 +1,34 @@
+# KubeXM Build Container - RHEL 7
+# Purpose: Build RPM packages and local repository for RHEL 7
+
+FROM registry.access.redhat.com/rhel7
+
+LABEL maintainer="KubeXM Team"
+LABEL description="RHEL 7 build environment for KubeXM offline packages"
+LABEL os.type="rhel"
+LABEL os.version="7"
+LABEL pkg.manager="yum"
+
+# Install build tools
+RUN yum install -y \
+    yum-utils \
+    createrepo \
+    rpm-build \
+    wget \
+    curl \
+    tar \
+    gzip \
+    xz \
+    && yum clean all
+
+# Create build directories
+RUN mkdir -p /build/packages /build/repo /build/output
+
+WORKDIR /build
+
+# Copy build scripts
+COPY containers/scripts/build-rpm.sh /build-rpm.sh
+RUN chmod +x /build-rpm.sh
+
+# Default command
+CMD ["/bin/bash"]

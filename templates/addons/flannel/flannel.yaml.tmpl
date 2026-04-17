@@ -1,0 +1,280 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-flannel
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flannel
+  namespace: kube-flannel
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: flannel
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - nodes/status
+  verbs:
+  - patch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - clustercidrs
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: flannel
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: flannel
+subjects:
+- kind: ServiceAccount
+  name: flannel
+  namespace: kube-flannel
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kube-flannel-ds
+  namespace: kube-flannel
+  labels:
+    tier: node
+    app: flannel
+spec:
+  selector:
+    matchLabels:
+      app: flannel
+  template:
+    metadata:
+      labels:
+        tier: node
+        app: flannel
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                - amd64
+                - arm64
+                - ppc64le
+                - s390x
+              - key: kubernetes.io/os
+                operator: In
+                values:
+                - linux
+      containers:
+      - args:
+        - --ip-masq
+        - --kube-subnet-mgr
+        command:
+        - /opt/bin/flanneld
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: KUBERNETES_SERVICE_HOST
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.serviceClusterIP
+        - name: KUBERNETES_SERVICE_PORT
+          value: "443"
+        - name: KUBERNETES_SERVICE_PORT_HTTPS
+          value: "443"
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        image: ${IMAGE_REGISTRY:-}flannel/flannel:${FLANNEL_VERSION}
+        imagePullPolicy: IfPresent
+        name: kube-flannel
+        resources:
+          requests:
+            cpu: 100m
+            memory: 50Mi
+        securityContext:
+          capabilities:
+            add:
+            - NET_ADMIN
+            - NET_RAW
+        volumeMounts:
+        - mountPath: /run/flannel
+          name: run
+        - mountPath: /etc/kube-flannel/
+          name: flannel-cfg
+      hostNetwork: true
+      priorityClassName: system-node-critical
+      serviceAccountName: flannel
+      tolerations:
+      - effect: NoSchedule
+        operator: Exists
+      - key: CriticalAddonsOnly
+        operator: Exists
+      volumes:
+      - hostPath:
+          path: /run/flannel
+        name: run
+      - configMap:
+          defaultMode: 420
+          name: kube-flannel-cfg
+        name: flannel-cfg
+---
+apiVersion: v1
+data:
+  cni-conf.json: |
+    {
+      "name": "cbr0",
+      "cniVersion": "0.3.1",
+      "plugins": [
+        {
+          "type": "flannel",
+          "delegate": {
+            "hairpinMode": true,
+            "isDefaultGateway": true
+          }
+        },
+        {
+          "type": "portmap",
+          "capabilities": {
+            "portMappings": true
+          }
+        },
+        {
+          "type": "bandwidth",
+          "capabilities": {
+            "bandwidth": true
+          }
+        }
+      ]
+    }
+  net-conf.json: |
+    {
+      "Network": "${POD_CIDR}",
+      "Backend": {
+        "Type": "${FLANNEL_BACKEND:-vxlan}"
+      }
+    }
+kind: ConfigMap
+metadata:
+  name: kube-flannel-cfg
+  namespace: kube-flannel
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kube-multus-ds-amd64
+  namespace: kube-system
+  labels:
+    name: multus
+    tier: node
+spec:
+  selector:
+    matchLabels:
+      name: multus
+  template:
+    metadata:
+      labels:
+        name: multus
+        tier: node
+    spec:
+      hostNetwork: true
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+      serviceAccountName: multus
+      containers:
+      - name: kube-multus
+        image: ${IMAGE_REGISTRY:-}ghcr.io/k8snetworkplumbingwg/multus-cni:stable
+        command: ["/entrypoint.sh"]
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "50Mi"
+          limits:
+            cpu: "100m"
+            memory: "50Mi"
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: cnibin
+          mountPath: /host/opt/cni/bin
+        - name: cniconf
+          mountPath: /host/etc/cni/net.d
+        - name: multus-cfg
+          mountPath: /etc/kube-multus/
+      volumes:
+      - name: cnibin
+        hostPath:
+          path: /opt/cni/bin
+      - name: cniconf
+        hostPath:
+          path: /etc/cni/net.d
+      - name: multus-cfg
+        configMap:
+          defaultMode: 420
+          name: multus-config
+          items:
+          - key: cni-conf.json
+            path: 70-multus.conflist
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: multus-config
+  namespace: kube-system
+data:
+  cni-conf.json: |
+    {
+      "name": "multus-cni",
+      "type": "multus",
+      "default": false,
+      "capabilities": {
+        "bandwidth": true,
+        "portMappings": true
+      },
+      "delegates": [
+        {
+          "type": "flannel",
+          "delegate": {
+            "isDefaultGateway": true
+          }
+        }
+      ],
+      "kubeconfig": "/etc/cni/net.d/multus.d/multus.kubeconfig"
+  }

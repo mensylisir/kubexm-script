@@ -1,0 +1,13 @@
+Description=CRI Interface for Docker Application Container Engine
+Documentation=https://docs.mirantis.com
+After=network-online.target firewalld.service docker.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/cri-dockerd --containerd-namespace k8s.io --pod-infra-container-image {{ .PauseImage }}
+ExecReload=/bin/kill -s HUP \$MAINPID
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

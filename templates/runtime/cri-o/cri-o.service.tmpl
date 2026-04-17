@@ -1,0 +1,19 @@
+[Unit]
+Description=CRI-O - OCI-based implementation of Kubernetes Container Runtime Interface
+Documentation=https://github.com/cri-o/cri-o
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/crio
+ExecReload=/bin/kill -s HUP \$MAINPID
+KillMode=process
+Restart=on-failure
+LimitNOFILE=1048576
+LimitNPROC=1048576
+LimitCORE=infinity
+OOMScoreAdjust=-999
+
+[Install]
+WantedBy=multi-user.target

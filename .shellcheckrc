@@ -1,0 +1,15 @@
+# Shellcheck configuration for kubexm-script
+# ==============================================================================
+# Enable all optional checks except:
+# SC1090: Can't follow non-constant source (dynamic source paths are intentional)
+# SC1091: Not following sourced file (internal sourcing handled by loader)
+# SC2086: Double quote to prevent globbing (intentional in some paths)
+# SC2164: Use cd ... || exit (handled by context::set_root guard)
+# ==============================================================================
+
+disable=SC1090,SC1091,SC2086,SC2164
+enable=all
+exclude=SC1090,SC1091
+severity=error
+check-sourced=all
+shell=bash

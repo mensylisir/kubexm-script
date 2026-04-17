@@ -1,0 +1,11 @@
+[Unit]
+Description=Kubernetes Certificate Renewal Timer
+Requires=kubexm-cert-renew.service
+
+[Timer]
+OnCalendar=${CERT_RENEW_SCHEDULE:-daily}
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

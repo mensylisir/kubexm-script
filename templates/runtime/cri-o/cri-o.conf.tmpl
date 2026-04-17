@@ -1,0 +1,85 @@
+# CRI-O 核心配置文件
+# 路径: /etc/crio/crio.conf
+
+[crio]
+  # 根目录，存储容器数据
+  root = "/var/lib/containers/storage"
+  # 运行状态目录
+  runroot = "/var/run/containers/storage"
+  # 存储驱动 (通常是 overlay)
+  storage_driver = "overlay"
+  # 存储选项
+  storage_option = [
+    "overlay.mountopt=nodev,metacopy=on"
+  ]
+
+[crio.api]
+  # CRI-O 监听的 Socket 路径 (Kubelet 需连接此地址)
+  listen = "/var/run/crio/crio.sock"
+  # 流式服务地址 (exec/logs)
+  stream_address = "127.0.0.1"
+  stream_port = "0"
+  stream_enable_tls = false
+  stream_idle_timeout = "30s"
+
+[crio.runtime]
+  # 【关键】Cgroup 管理器，K8s 强制要求 systemd
+  cgroup_manager = "systemd"
+
+  # 默认 OCI 运行时名称
+  default_runtime = "runc"
+
+  # 钩子目录
+  hooks_dir = [
+    "/usr/share/containers/oci/hooks.d",
+    "/etc/containers/oci/hooks.d"
+  ]
+
+  # 容器监控进程 conmon 的路径 (二进制部署必须确认此路径存在)
+  conmon = "/usr/local/bin/conmon"
+  conmon_cgroup = "system.slice"
+  conmon_env = [
+    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  ]
+
+  # 默认容器 ulimit 设置
+  default_ulimits = [
+    "nofile=1048576:1048576"
+  ]
+
+  # 定义具体的运行时 (runc)
+  [crio.runtime.runtimes.runc]
+    # runc 二进制文件路径 (二进制部署必须确认此路径存在)
+    runtime_path = "/usr/local/sbin/runc"
+    runtime_type = "oci"
+    runtime_root = "/run/runc"
+    # 允许特权容器
+    privileged_without_host_devices = false
+
+[crio.image]
+  # 【必须修改】Pause 镜像地址 (如果是离线环境，请改为私有仓库地址)
+  pause_image = "{{ .PauseImage }}"
+
+  # 镜像拉取相关配置
+  pause_image_auth_file = "/var/lib/kubelet/config.json"
+  pause_command = "/pause"
+
+  # 是否允许系统级的镜像签名策略 (离线私有仓库通常需要设为 false 或正确配置 policy.json)
+  signature_policy = "/etc/containers/policy.json"
+
+  # 镜像拉取超时时间
+  pull_progress_timeout = "1m"
+
+[crio.network]
+  # CNI 网络插件配置目录
+  network_dir = "/etc/cni/net.d/"
+  # CNI 插件二进制文件目录 (必须确认路径正确)
+  plugin_dirs = [
+    "/opt/cni/bin/",
+    "/usr/libexec/cni/"
+  ]
+
+[crio.metrics]
+  # 是否开启 Prometheus 指标
+  enable_metrics = true
+  metrics_port = 9090

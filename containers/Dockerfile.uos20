@@ -1,0 +1,44 @@
+# KubeXM Build Container - UOS 20 Server
+# Purpose: Build DEB packages and local repository for Uniontech OS Server 20
+
+# UOS 20 is based on Debian, use debian:10 as base
+FROM debian:10
+
+LABEL maintainer="KubeXM Team"
+LABEL description="UOS 20 Server (Debian-based) build environment for KubeXM offline packages"
+LABEL os.type="uos"
+LABEL os.version="20"
+LABEL pkg.manager="apt"
+
+# Set non-interactive mode
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Note: UOS may use different mirror sources
+# In actual deployment, configure UOS official mirror
+
+# Update package lists and install build tools
+RUN apt-get update && apt-get install -y \
+    apt-rdepends \
+    dpkg-dev \
+    wget \
+    curl \
+    tar \
+    gzip \
+    xz-utils \
+    gnupg \
+    apt-transport-https \
+    ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create build directories
+RUN mkdir -p /build/packages /build/repo /build/output
+
+WORKDIR /build
+
+# Copy build scripts
+COPY scripts/build-deb.sh /build/
+RUN chmod +x /build/build-deb.sh
+
+# Default command
+CMD ["/bin/bash"]

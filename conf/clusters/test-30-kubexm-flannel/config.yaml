@@ -1,0 +1,52 @@
+# ==============================================================================
+# 测试配置 30 - kubexm + Flannel CNI
+# ==============================================================================
+# 说明：使用 Flannel 作为网络插件
+# ==============================================================================
+
+apiVersion: kubexm.io/v1
+kind: Config
+metadata:
+  name: test-30-kubexm-flannel
+spec:
+  mode: offline
+  arch:
+    - amd64
+  kubernetes:
+    type: kubexm
+    version: v1.32.4
+    service_cidr: 10.96.0.0/12
+    pod_cidr: 10.244.0.0/16
+    cluster_domain: cluster.local
+
+  etcd:
+    type: kubexm
+    data_dir: /var/lib/etcd
+
+  runtime:
+    type: containerd
+    version: v1.7.13
+    cgroup_driver: systemd
+
+  network:
+    plugin: flannel
+    interface: "eth.*"
+    backend: vxlan
+
+  loadbalancer:
+    enabled: true
+    mode: external
+    type: kubexm-kn
+    vip: 192.168.1.100
+    interface: eth0
+
+    external:
+      keepalived:
+        router_id: 51
+        priority: 100
+        auth_pass: "kubexm_pass"
+      nginx:
+        stream_port: 6443
+
+  logging:
+    level: info

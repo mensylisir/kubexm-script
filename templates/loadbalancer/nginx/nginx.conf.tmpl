@@ -1,0 +1,24 @@
+# 配置四层转发到 Kubernetes API Server
+stream {
+    upstream kube_apiserver {
+{{- range .BackendServers }}
+        server {{ .Host }}:{{ .Port }};
+{{- end }}
+    }
+
+    server {
+        listen {{ .ListenPort }};
+        proxy_pass kube_apiserver;
+        proxy_timeout 3s;
+        proxy_connect_timeout 1s;
+    }
+}
+
+# HTTP 重定向到 HTTPS (可选)
+http {
+    server {
+        listen 80;
+        server_name _;
+        return 301 https://$host$request_uri;
+    }
+}

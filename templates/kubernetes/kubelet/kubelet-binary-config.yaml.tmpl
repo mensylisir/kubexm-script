@@ -1,0 +1,84 @@
+# ==============================================================================
+# Kubelet Configuration Template for Binary Deployment
+# ==============================================================================
+# Generated from template - Do not edit manually
+# Cluster: ${CLUSTER_NAME}
+# Node: ${NODE_NAME}
+# ==============================================================================
+
+kind: KubeletConfiguration
+apiVersion: kubelet.config.k8s.io/v1beta1
+address: ${NODE_IP:-0.0.0.0}
+authentication:
+  anonymous:
+    enabled: false
+  webhook:
+    cacheTTL: 2m0s
+    enabled: true
+  x509:
+    clientCAFile: /etc/kubernetes/pki/ca.crt
+authorization:
+  mode: Webhook
+  webhook:
+    cacheAuthorizedTTL: 5m0s
+    cacheUnauthorizedTTL: 30s
+cgroupDriver: ${CGROUP_DRIVER:-systemd}
+cgroupsPerQOS: true
+clusterDNS:
+  - ${CLUSTER_DNS_IP}
+clusterDomain: ${CLUSTER_DOMAIN}
+configMapAndSecretChangeDetectionStrategy: Watch
+containerLogMaxFiles: ${KUBELET_CONTAINER_LOG_MAX_FILES:-5}
+containerLogMaxSize: ${KUBELET_CONTAINER_LOG_MAX_SIZE:-50Mi}
+enforceNodeAllocatable:
+  - pods
+eventBurst: 10
+eventRecordQPS: 5
+evictionHard:
+  imagefs.available: 15%
+  memory.available: ${KUBELET_EVICTION_MEMORY:-100Mi}
+  nodefs.available: 10%
+  nodefs.inodesFree: 5%
+evictionSoft:
+  memory.available: ${KUBELET_EVICTION_SOFT_MEMORY:-200Mi}
+evictionSoftGracePeriod:
+  memory.available: 1m30s
+evictionPressureTransitionPeriod: 5m0s
+failSwapOn: true
+fileCheckFrequency: 40s
+hairpinMode: hairpin-veth
+healthzBindAddress: 127.0.0.1
+healthzPort: 10248
+httpCheckFrequency: 40s
+imageGCHighThresholdPercent: 85
+imageGCLowThresholdPercent: 80
+imageMinimumGCAge: 2m0s
+kubeAPIBurst: 100
+kubeAPIQPS: 50
+makeIPTablesUtilChains: true
+maxOpenFiles: 1000000
+maxParallelImagePulls: 5
+maxPods: ${KUBELET_MAX_PODS:-110}
+nodeLeaseDurationSeconds: 40
+nodeStatusReportFrequency: 1m0s
+nodeStatusUpdateFrequency: 10s
+oomScoreAdj: -999
+podPidsLimit: -1
+port: 10250
+# disable readOnlyPort
+readOnlyPort: 0
+resolvConf: ${KUBELET_RESOLV_CONF:-/etc/resolv.conf}
+runtimeRequestTimeout: 2m0s
+serializeImagePulls: false
+streamingConnectionIdleTimeout: 5m0s
+syncFrequency: 1m0s
+tlsCertFile: /etc/kubernetes/pki/kubelet.crt
+tlsPrivateKeyFile: /etc/kubernetes/pki/kubelet.key
+tlsCipherSuites:
+  - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+  - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+  - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+  - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+rotateCertificates: true
+serverTLSBootstrap: true
+protectKernelDefaults: true

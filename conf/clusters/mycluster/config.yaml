@@ -1,0 +1,298 @@
+apiVersion: kubexm.io/v1
+kind: Config
+metadata:
+  name: mycluster
+spec:
+  mode: offline                       # 有online和offline两个取值，online表示在线部署，offline表示离线部署
+  arch:
+    - arm64
+    - amd64
+  kubernetes:
+    type: kubeadm                     # 有kubeadm和kubexm两个取值，kubeadm表示kubeadm部署kubernetes，kubexm表示二进制部署kubernetes
+    version: v1.32.4                  # Kubernetes 版本 (支持 v1.24 - v1.34)
+    service_cidr: 10.96.0.0/12        # Service网络
+    pod_cidr: 10.244.0.0/16           # Pod网络
+    cluster_domain: cluster.local     # DNS域名
+    autoRenewCerts: true              # 自动续期kubernetes叶子证书
+
+    apiserver:
+      advertise_address: ""           # API Server 绑定地址 自动检测
+      secure_port: 6443               # API Server 端口
+      audit:
+        enabled: true
+        log_path: /var/log/kubernetes/audit.log
+        log_maxage: 30
+        log_maxbackup: 10
+        log_maxsize: 100
+        policy_file: "/etc/kubernetes/audit-policy.yaml"
+        policy:
+          rules:
+            - level: None
+              omitStages:
+                - "RequestReceived"
+            - level: None
+              users: ["system:kube-proxy", "system:apiserver", "system:controller-manager", "system:scheduler"]
+              verbs: ["watch"]
+              resources:
+                - group: ""
+                  resources: ["endpoints", "services", "services/status"]
+            - level: Metadata
+              resources:
+                - group: ""
+                  resources: ["secrets", "configmaps", "serviceaccounts/token"]
+            - level: RequestResponse
+              verbs: ["create", "update", "patch", "delete", "deletecollection"]
+            - level: Metadata
+              verbs: ["get", "list", "watch"]
+      extra_args: []
+    controller_manager:
+      allocate_node_cidrs: true
+      node_cidr_mask_size: 24
+
+    kube_proxy:
+      mode: ipvs              # iptables | ipvs
+      strict_arp: false        # 是否开启 strict ARP (对于 MetalLB 或 Kube-vip 必须)
+
+  etcd:
+    type: kubeadm                   # 部署类型: kubeadm(容器化) | kubexm(二进制)|exists(不需要本程序部署)
+    version: v3.5.13                # 一般不指定，走默认值
+    mode: stacked                   # 部署模式: stacked(堆叠) | external(外置)
+    data_dir: /var/lib/etcd         # 数据目录
+    autoBackupEtcd: true            # 自动备份etcd
+    extra_args:                     # 如果配置了额外参数，则要设置
+      quota-backend-bytes: "8589934592"  # 8GB
+      snapshot-count: "100000"
+      heartbeat-interval: "250"
+      election-timeout: "2500"
+      auto-compaction-retention: "1"
+      auto-compaction-mode: "periodic"
+      max-request-bytes: "10485760"
+
+  runtime:
+    type: containerd                  # containerd | docker | crio | podman
+    version: v1.7.13                  # 运行时的版本 (对应下面选中的那个类型)
+    cgroup_driver: systemd            # 强烈建议 systemd
+    data_dir: /var/lib/containerd     # 数据根目录 (根据 type 不同，代码里映射到不同路径)
+    registry:
+      mirrors:
+        - registry: docker.io
+          endpoint: https://docker.mirrors.ustc.edu.cn
+        - registry: registry.k8s.io
+          endpoint: https://registry.aliyuncs.com/google_containers
+
+    insecure_registries:              # HTTP 仓库白名单
+      - "192.168.1.0/24"
+      - "harbor.internal"
+
+    containerd:
+      run_dir: "/run/containerd"
+      config_path: "/etc/containerd/config.toml"
+      max_container_log_line_size: 16384
+
+    docker:
+      cri_dockerd:
+        enabled: true
+        version: v0.3.10              # cri-dockerd 的版本
+
+      daemon_json:
+        live_restore: true            # 生产环境必备：daemon 重启不杀容器
+        log_driver: "json-file"       # 日志驱动
+        log_opts:
+          max-size: "100m"            # 单文件大小
+          max-file: "5"               # 保留文件数
+        storage_driver: "overlay2"
+
+    crio:
+      # [注意] CRI-O 的主版本号必须与 K8s 保持一致 (如 k8s 1.28 -> crio 1.28)
+      # 配置文件路径: /etc/crio/crio.conf
+      # 监控工具 conmon 的路径 (一般自动检测，但支持指定)
+      conmon_path: ""
+      # 容器进程数限制
+      pids_limit: 1024
+      # 日志级别: fatal, panic, error, warn, info, debug
+      log_level: info
+
+    podman:
+      # 配置文件: /etc/containers/storage.conf
+      storage_driver: "overlay"
+      rootless: false                 # 是否开启无根模式 (K8s 一般需要 root)
+      events_logger: "file"           # journald | file
+
+  network:
+    plugin: calico
+    interface: "eth.*"
+    ip_family: ipv4
+
+    node_cidr_mask_size: 24   # 这是一个全局抽象参数，代码根据 plugin 类型决定填到哪里
+
+    calico:
+      version: v3.27.0
+      mode: ipip
+      # Calico 内部叫 blockSize
+      # 如果上面的 node_cidr_mask_size 设置了，这里默认继承
+      # 但 Calico 允许更灵活的分配，比如设置为 26 (按需分配小块)
+      block_size: 26
+
+    flannel:
+      version: v0.24.0
+      backend: vxlan
+      # Flannel 没有自己的 block配置，它完全依赖 kubernetes.controller_manager.node_cidr_mask_size
+
+    cilium:
+      version: v1.14.5
+      tunnel_mode: vxlan
+      # Cilium 的 IPAM 模式:
+      # - kubernetes: 使用 k8s 分配 (依赖 controller manager)
+      # - cluster-pool: Cilium 自己分配 (推荐，性能好，分配快)
+      ipam_mode: cluster-pool
+
+      # 仅在 ipam_mode: cluster-pool 时生效
+      # 对应 cilium 配置中的 ipv4-node-cidr-mask-size
+      cidr_mask_size: 24
+
+  loadbalancer:
+    enabled: true
+    mode: external            # 模式选择: internal | external | kube-vip | exists(不需要本程序部署)
+    # 负载均衡器类型
+    # internal 模式下: haproxy | nginx
+    # external 模式下: kubexm-kh (Keepalived+HAProxy) | kubexm-kn (Keepalived+Nginx) 
+    # kube-vip模式下:kube-vip
+    # exists模式下:exists (不需要本程序部署)
+    type: kubexm-kh
+    # VIP 地址 (external 和 kube-vip 模式必填)
+    vip: 192.168.1.100
+
+    # 绑定网卡 (Keepalived 和 kube-vip 可以选填，如果节点有多张网卡建议填写，如果单张网卡则程序自动检测)
+    interface: eth0
+
+
+    internal:
+      # HAProxy 特定配置 (当 type=haproxy)
+      haproxy:
+        bind_port: 6443             # 监听本地端口
+        # 后端服务器列表通常由安装程序自动根据 Master 节点生成，无需手动配置
+
+      # Nginx 特定配置 (当 type=nginx)
+      nginx:
+        bind_port: 6443
+
+    external:
+      # Keepalived 配置 (用于 kubexm-kh 和 kubexm-kn)
+      keepalived:
+        router_id: 51               # VRRP 路由 ID
+        priority: 100               # 初始优先级
+        auth_pass: "kubexm_pass"    # 认证密码
+
+      # HAProxy 配置 (用于 kubexm-kh)
+      haproxy:
+        stats_port: 9000
+        stats_user: admin
+        stats_password: admin
+
+      # Nginx 配置 (用于 kubexm-kn)
+      nginx:
+        stream_port: 6443           # 转发端口
+
+    kube_vip:
+      mode: arp
+
+  addons:                           # --- 附加组件配置 ---
+    metrics_server:
+      enabled: true
+      version: v0.7.0               # 一般不指定，走默认值
+
+    dashboard:
+      enabled: false
+      version: v2.7.0               # 一般不指定，走默认值
+
+    nodelocaldns:
+      enabled: true
+
+    storage:
+      local_path_provisioner:
+        enabled: false
+        version: v0.0.26            # 一般不指定，走默认值
+
+    ingress_controller:
+      enabled: true
+      type: nginx             # nginx | traefik
+      version: v1.9.4
+      host_network: true      # 是否使用主机网络
+
+  nodes:
+    kubelet:
+      kube_reserved:
+        cpu: "200m"
+        memory: "256Mi"
+      system_reserved:
+        cpu: "200m"
+        memory: "256Mi"
+      eviction_hard:
+        memory.available: "100Mi"
+        nodefs.available: "10%"
+    system:
+      timezone: Asia/Shanghai
+      ntp_servers:
+        - ntp.aliyun.com
+        - time.cloudflare.com
+
+      disable_swap: true             # 禁用 swap
+      disable_selinux: true          # 禁用 SELinux
+      firewall:                      # 防火墙
+        enabled: false
+
+    sysctl:                          # 内核参数调优
+      net.ipv4.ip_forward: 1
+      net.bridge.bridge-nf-call-iptables: 1
+      net.bridge.bridge-nf-call-ip6tables: 1
+      vm.swappiness: 0
+
+  certificates:
+    validity_days: 3650              # 10年
+    auto_renew:                      # 自动续期
+      enabled: true
+      days_before_expiry: 30
+
+  backup:                            # --- 备份配置 ---
+    etcd:                            # Etcd 备份
+      enabled: true
+      schedule: "0 2 * * *"         # 每天2点
+      retention_days: 7
+      backup_dir: /var/backups/etcd
+
+  logging:                          # --- 日志配置 ---
+    level: info                     # 日志级别: debug | info | warn | error
+    log_dir: /var/log/kubexm         # 日志目录
+    retention_days: 30                 # 日志保留天数
+
+  advanced:                         # --- 高级配置 ---
+    download:                       # 下载配置
+      concurrency: 5                # 并发数
+      retry: 3                      # 重试次数
+      timeout: 300                  # 超时时间(秒)
+    deploy:                         # 部署配置
+      parallel_nodes: 3             # 并发节点数
+      health_check_retries: 30      # 健康检查重试
+    image_pull:                     # 镜像预拉取
+      enabled: true
+      parallel: 3
+
+  registry:                         # --- Registry 配置 ---
+    version: v2.8.3                 # 一般不指定，走默认值
+    enable: true
+    host: ""
+    port: 5000
+    auth:
+      enabled: false
+      username: "admin"
+      password: "Harbor12345"
+    data_dir: "/var/lib/registry"
+    tls:
+      enabled: false
+      cert_file: "/etc/registry/tls/registry.crt"
+      key_file: "/etc/registry/tls/registry.key"
+
+  # --- 文件路径 ---
+  paths:
+    work_dir: "/tmp/kubexm"
+    cache_dir: "/var/cache/kubexm"

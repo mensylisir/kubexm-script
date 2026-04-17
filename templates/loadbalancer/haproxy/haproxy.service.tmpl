@@ -1,0 +1,23 @@
+[Unit]
+Description=HAProxy Load Balancer
+Documentation=man:haproxy(1) file:/usr/share/doc/haproxy/configuration.txt.gz
+After=network-online.target rsyslog.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+Environment="CONFIG=/etc/haproxy/haproxy.cfg" "PIDFILE=/run/haproxy.pid"
+EnvironmentFile=-/etc/default/haproxy
+ExecStartPre=/usr/sbin/haproxy -Ws -f $CONFIG -c -q $SSLDIR
+ExecStart=/usr/sbin/haproxy -Ws -f $CONFIG -p $PIDFILE
+ExecReload=/usr/sbin/haproxy -Ws -f $CONFIG -c -q $SSLDIR
+ExecReload=/bin/kill -USR2 $MAINPID
+KillMode=mixed
+KillSignal=SIGUSR1
+LimitNOFILE=1048576
+LimitNPROC=65536
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

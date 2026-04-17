@@ -1,0 +1,39 @@
+# ==============================================================================
+# 测试配置 22 - kubeadm 三节点 + external etcd
+# ==============================================================================
+# 说明：使用外部独立 Etcd 集群，不部署本地 Etcd
+# ==============================================================================
+
+apiVersion: kubexm.io/v1
+kind: Config
+metadata:
+  name: test-22-kubeadm-3master-external-etcd
+spec:
+  mode: offline
+  arch:
+    - amd64
+  kubernetes:
+    type: kubeadm
+    version: v1.32.4
+    service_cidr: 10.96.0.0/12
+    pod_cidr: 10.244.0.0/16
+    cluster_domain: cluster.local
+
+  etcd:
+    type: exists
+    external_endpoints:
+      - https://etcd-1:2379
+      - https://etcd-2:2379
+      - https://etcd-3:2379
+
+  runtime:
+    type: containerd
+    version: v1.7.13
+    cgroup_driver: systemd
+
+  network:
+    plugin: calico
+    interface: "eth.*"
+
+  logging:
+    level: info

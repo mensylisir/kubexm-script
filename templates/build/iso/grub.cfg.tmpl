@@ -1,0 +1,56 @@
+{{ .comment -}}
+# KubeXM Offline Installer - UEFI Boot Configuration
+# Generated: {{ .generated }}
+# ISO Label: {{ .iso_label }}
+
+set default="0"
+set timeout={{ .timeout | default 60 }}
+
+# Set gfxpayload to keep text mode
+set gfxpayload=keep
+
+# Background color
+set color_normal=white/black
+set color_highlight=black/white
+
+menuentry "Install KubeXM Kubernetes Cluster ({{ .k8s_type }})" --class os {
+    set gfxpayload=keep
+    linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL={{ .iso_label }} quiet ks=file:/ks.cfg
+    initrdefi /images/pxeboot/initrd.img
+}
+
+menuentry "Install KubeXM (Text Mode)" --class os {
+    linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL={{ .iso_label }} inst.text
+    initrdefi /images/pxeboot/initrd.img
+}
+
+menuentry "Install with Basic Video Driver" --class os {
+    linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL={{ .iso_label }} xdriver=vesa nomodeset
+    initrdefi /images/pxeboot/initrd.img
+}
+
+menuentry "Rescue Mode" --class os {
+    linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL={{ .iso_label }} rescue
+    initrdefi /images/pxeboot/initrd.img
+}
+
+menuentry "Boot from Local Drive" --class os {
+    set root=(hd0)
+    chainloader +1
+}
+
+menuentry "System Information" --class os {
+    echo "KubeXM Kubernetes Installer"
+    echo "Version: {{ .k8s_version }}"
+    echo "Kubernetes Type: {{ .k8s_type }}"
+    echo "Architecture: {{ .arch }}"
+    echo "Generated: {{ .generated }}"
+    sleep --verbose 10
+}
+
+if [ -f ${prefix}/gfxblacklist.txt ]; then
+    # Requires syslinux 6.03
+    #blacklist loading of specific modules
+    #see https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html
+    true
+fi

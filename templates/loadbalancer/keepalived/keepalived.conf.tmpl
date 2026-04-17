@@ -1,0 +1,33 @@
+! Configuration File for keepalived
+
+global_defs {
+  router_id LVS_DEVEL
+  enable_script_security
+  script_user root
+}
+
+vrrp_script check_haproxy {
+  script "/etc/keepalived/check_haproxy.sh"
+  interval 2
+  weight 2
+  fall 2
+  rise 2
+}
+
+vrrp_instance VI_KUBE {
+  state {{ .STATE | default "BACKUP" }}
+  interface {{ .INTERFACE | default "eth0" }}
+  virtual_router_id 50
+  priority {{ .PRIORITY | default 100 }}
+  advert_int 1
+  authentication {
+    auth_type PASS
+    auth_pass KUBE_CHECK
+  }
+  virtual_ipaddress {
+    {{ .VIP | default "192.168.50.100" }}
+  }
+  track_script {
+    check_haproxy
+  }
+}

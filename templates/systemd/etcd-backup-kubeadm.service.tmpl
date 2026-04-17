@@ -1,0 +1,51 @@
+[Unit]
+Description=etcd Backup Service (kubeadm stacked mode)
+Documentation=https://etcd.io/docs/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# kubeadm stacked 模式: etcd 在容器内运行
+# 需要 exec 到 etcd 容器执行备份
+ExecStart=/bin/bash -c '\
+  BACKUP_DIR=${ETCD_BACKUP_DIR:-/var/backups/etcd}; \
+  KEEP=${ETCD_BACKUP_KEEP:-7}; \
+  TIMESTAMP=$(date +%%Y%%m%%d_%%H%%M%%S); \
+  mkdir -p $BACKUP_DIR; \
+  \
+  # 获取容器运行时
+  if command -v crictl &>/dev/null; then \
+    CONTAINER_ID=$(crictl ps --name etcd -q | head -1); \
+    if [ -n "$CONTAINER_ID" ]; then \
+      crictl exec $CONTAINER_ID etcdctl \
+        --endpoints=https://127.0.0.1:2379 \
+        --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+        --cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt \
+        --key=/etc/kubernetes/pki/etcd/healthcheck-client.key \
+        snapshot save /tmp/snapshot-$TIMESTAMP.db; \
+      crictl cp $CONTAINER_ID:/tmp/snapshot-$TIMESTAMP.db $BACKUP_DIR/snapshot-$TIMESTAMP.db; \
+      crictl exec $CONTAINER_ID rm -f /tmp/snapshot-$TIMESTAMP.db; \
+    fi; \
+  elif command -v docker &>/dev/null; then \
+    CONTAINER_ID=$(docker ps --filter name=etcd -q | head -1); \
+    if [ -n "$CONTAINER_ID" ]; then \
+      docker exec $CONTAINER_ID etcdctl \
+        --endpoints=https://127.0.0.1:2379 \
+        --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+        --cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt \
+        --key=/etc/kubernetes/pki/etcd/healthcheck-client.key \
+        snapshot save /tmp/snapshot-$TIMESTAMP.db; \
+      docker cp $CONTAINER_ID:/tmp/snapshot-$TIMESTAMP.db $BACKUP_DIR/snapshot-$TIMESTAMP.db; \
+      docker exec $CONTAINER_ID rm -f /tmp/snapshot-$TIMESTAMP.db; \
+    fi; \
+  fi; \
+  \
+  # 清理旧备份
+  ls -t $BACKUP_DIR/snapshot-*.db 2>/dev/null | tail -n +$((KEEP+1)) | xargs -r rm -f; \
+  echo "Backup completed: $BACKUP_DIR/snapshot-$TIMESTAMP.db"'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

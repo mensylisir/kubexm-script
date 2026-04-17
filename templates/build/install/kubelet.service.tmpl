@@ -1,0 +1,30 @@
+[Unit]
+Description=kubelet: The Kubernetes Node Agent
+Documentation=https://kubernetes.io/docs/
+Wants=network-online.target
+After=network-online.target containerd.service
+Requires=containerd.service
+
+[Service]
+ExecStart={{ .kubelet_path }}/kubelet \
+  {{ .kubelet_args }}
+Restart=always
+StartLimitInterval=0
+RestartSec=10
+Type=notify
+
+# Kill mode changed from 'process' to 'mixed' in v1.24
+KillMode=mixed
+KillSignal=SIGTERM
+
+# Uncomment the following line if you are having issues with a iscsiadm bug
+# https://github.com/kubernetes/kubernetes/issues/127699
+# ExecStartPost=/sbin/modprobe br_netfilter
+
+# This limit will avoid kubelet getting OOM killed
+TimeoutStartSec=2
+MemoryMax={{ .memory_max | default "2G" }}
+CPUQuota={{ .cpu_quota | default "200%" }}
+
+[Install]
+WantedBy=multi-user.target

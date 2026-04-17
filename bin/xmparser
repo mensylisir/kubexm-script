@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# xmparser wrapper - auto-select correct architecture binary
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KUBEXM_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+TOOLS_DIR="${KUBEXM_ROOT}/internal/tools"
+
+ARCH="$(uname -m)"
+case "${ARCH}" in
+  x86_64|amd64)
+    BINARY="${TOOLS_DIR}/xmparser-amd64"
+    ;;
+  aarch64|arm64)
+    BINARY="${TOOLS_DIR}/xmparser-arm64"
+    ;;
+  *)
+    echo "Error: Unsupported architecture: ${ARCH}" >&2
+    exit 1
+    ;;
+esac
+exec "${BINARY}" "$@"

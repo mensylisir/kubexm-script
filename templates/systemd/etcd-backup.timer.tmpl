@@ -1,0 +1,11 @@
+[Unit]
+Description=Etcd Backup Timer
+Requires=etcd-backup.service
+
+[Timer]
+OnCalendar=${ETCD_BACKUP_SCHEDULE:-*-*-* 02:00:00}
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

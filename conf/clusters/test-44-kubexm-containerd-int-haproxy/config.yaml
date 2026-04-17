@@ -1,0 +1,45 @@
+# ==============================================================================
+# 测试配置 44 - kubexm + Containerd + internal LB (HAProxy)
+# ==============================================================================
+# 说明：使用 Containerd 运行时，internal HAProxy 负载均衡（systemctl 部署）
+# ==============================================================================
+
+apiVersion: kubexm.io/v1
+kind: Config
+metadata:
+  name: test-44-kubexm-containerd-int-haproxy
+spec:
+  mode: offline
+  arch:
+    - amd64
+  kubernetes:
+    type: kubexm
+    version: v1.32.4
+    service_cidr: 10.96.0.0/12
+    pod_cidr: 10.244.0.0/16
+    cluster_domain: cluster.local
+
+  etcd:
+    type: kubexm
+    data_dir: /var/lib/etcd
+
+  runtime:
+    type: containerd
+    version: v1.7.13
+    cgroup_driver: systemd
+
+  network:
+    plugin: calico
+    interface: "eth.*"
+
+  loadbalancer:
+    enabled: true
+    mode: internal
+    type: haproxy
+
+    internal:
+      haproxy:
+        bind_port: 6443
+
+  logging:
+    level: info

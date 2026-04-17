@@ -1,0 +1,12 @@
+apiVersion: kubexm.io/v1
+kind: Host
+metadata:
+  name: test-05-kubeadm-3master-kubexm-etcd
+spec:
+  hosts:
+    - {name: master-01, address: 192.168.1.10, user: root}
+    - {name: master-02, address: 192.168.1.11, user: root}
+    - {name: master-03, address: 192.168.1.12, user: root}
+  roleGroups:
+    etcd: [master-01, master-02, master-03]
+    control-plane: [master-01, master-02, master-03]

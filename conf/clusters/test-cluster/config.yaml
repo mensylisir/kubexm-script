@@ -1,0 +1,68 @@
+apiVersion: kubexm.io/v1
+kind: Config
+metadata:
+  name: test-cluster
+spec:
+  mode: online  # 在线模式，自动下载资源
+  arch:
+    - amd64
+
+  kubernetes:
+    type: kubeadm
+    version: v1.32.0
+    service_cidr: 10.96.0.0/12
+    pod_cidr: 10.244.0.0/16
+    cluster_domain: cluster.local
+    autoRenewCerts: true
+
+    apiserver:
+      advertise_address: ""
+      secure_port: 6443
+      audit:
+        enabled: false
+
+    controller_manager:
+      allocate_node_cidrs: true
+      node_cidr_mask_size: 24
+
+    kube_proxy:
+      mode: ipvs
+      strict_arp: false
+
+  etcd:
+    type: kubeadm
+    version: v3.5.13
+    mode: stacked
+    data_dir: /var/lib/etcd
+    autoBackupEtcd: true
+
+  runtime:
+    type: containerd
+    version: v1.7.13
+    cgroup_driver: systemd
+    data_dir: /var/lib/containerd
+
+  network:
+    plugin: calico
+    interface: "eth.*"
+    ip_family: ipv4
+
+    calico:
+      version: v3.27.0
+      mode: vxlan
+      block_size: 26
+
+  loadbalancer:
+    enabled: false  # 单控制平面，不需要LB
+
+  storage:
+    type: local-path
+    version: v0.0.24
+    autoExpand: true
+
+  registry:
+    enable: false
+
+  paths:
+    work_dir: "/tmp/kubexm"
+    cache_dir: "/var/cache/kubexm"

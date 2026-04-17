@@ -1,0 +1,16 @@
+[Unit]
+Description=Etcd Automatic Backup
+After=etcd.service
+
+[Service]
+Type=oneshot
+Environment=ETCD_ENDPOINTS=${ETCD_ENDPOINTS:-https://127.0.0.1:2379}
+Environment=ETCD_CERT_DIR=${ETCD_CERT_DIR:-/etc/kubernetes/pki/etcd}
+Environment=ETCD_BACKUP_DIR=${ETCD_BACKUP_DIR:-/var/backups/etcd}
+Environment=ETCD_BACKUP_KEEP=${ETCD_BACKUP_KEEP:-7}
+ExecStart=/usr/local/bin/etcd-backup.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

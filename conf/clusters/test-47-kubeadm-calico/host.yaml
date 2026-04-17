@@ -1,0 +1,18 @@
+apiVersion: kubexm.io/v1
+kind: Host
+metadata:
+  name: test-47-kubeadm-calico
+spec:
+  hosts:
+    - {name: master-01, address: 192.168.1.10, user: root}
+    - {name: master-02, address: 192.168.1.11, user: root}
+    - {name: master-03, address: 192.168.1.12, user: root}
+    - {name: worker-01, address: 192.168.1.20, user: root}
+    - {name: worker-02, address: 192.168.1.21, user: root}
+    - {name: lb-01, address: 192.168.1.30, user: root}
+    - {name: lb-02, address: 192.168.1.31, user: root}
+  roleGroups:
+    etcd: [master-01, master-02, master-03]
+    control-plane: [master-01, master-02, master-03]
+    worker: [worker-01, worker-02]
+    loadbalancer: [lb-01, lb-02]

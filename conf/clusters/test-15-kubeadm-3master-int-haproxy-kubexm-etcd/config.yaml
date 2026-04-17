@@ -1,0 +1,45 @@
+# ==============================================================================
+# 测试配置 15 - kubeadm 三节点 + kubexm etcd + internal LB (HAProxy)
+# ==============================================================================
+# 说明：kubernetes使用kubeadm，etcd使用二进制，使用HAProxy作为内部负载均衡器（静态Pod方式）
+# ==============================================================================
+
+apiVersion: kubexm.io/v1
+kind: Config
+metadata:
+  name: test-15-kubeadm-3master-int-haproxy-kubexm-etcd
+spec:
+  mode: offline
+  arch:
+    - amd64
+  kubernetes:
+    type: kubeadm
+    version: v1.32.4
+    service_cidr: 10.96.0.0/12
+    pod_cidr: 10.244.0.0/16
+    cluster_domain: cluster.local
+
+  etcd:
+    type: kubexm
+    data_dir: /var/lib/etcd
+
+  runtime:
+    type: containerd
+    version: v1.7.13
+    cgroup_driver: systemd
+
+  network:
+    plugin: calico
+    interface: "eth.*"
+
+  loadbalancer:
+    enabled: true
+    mode: internal
+    type: haproxy
+
+    internal:
+      haproxy:
+        bind_port: 6443
+
+  logging:
+    level: info

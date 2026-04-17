@@ -1,0 +1,41 @@
+# KubeXM Build Container - CentOS 7
+# Purpose: Build RPM packages and local repository for CentOS 7
+
+FROM centos:7
+
+LABEL maintainer="KubeXM Team"
+LABEL description="CentOS 7 build environment for KubeXM offline packages"
+LABEL os.type="centos"
+LABEL os.version="7"
+LABEL pkg.manager="yum"
+
+# Fix CentOS 7 EOL mirror issue
+RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-* && \
+    sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
+
+# Install EPEL repository
+RUN yum install -y epel-release
+
+# Install build tools
+RUN yum install -y \
+    yum-utils \
+    createrepo \
+    rpm-build \
+    wget \
+    curl \
+    tar \
+    gzip \
+    xz \
+    && yum clean all
+
+# Create build directories
+RUN mkdir -p /build/packages /build/repo /build/output
+
+WORKDIR /build
+
+# Copy build scripts
+COPY scripts/build-rpm.sh /build/
+RUN chmod +x /build/build-rpm.sh
+
+# Default command
+CMD ["/bin/bash"]

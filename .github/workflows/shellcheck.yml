@@ -1,0 +1,33 @@
+name: Shellcheck Lint
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Shellcheck
+        uses: ludwan多余多余/extra-actions/shellcheck-lint@v1
+        with:
+          args: >
+            --severity=error
+            --format=gcc
+            --color=always
+            --exclude=SC1090,SC1091
+            internal/
+            bin/
+            scripts/
+            tests/
+
+
+      # Prevent cross-layer violations: Step files must not call Connector directly
+      - name: Check Step Structure and Cross-Layer Violations
+        env:
+          KUBEXM_ROOT: ${{ github.workspace }}
+        run: bash scripts/lint-step-structure.sh

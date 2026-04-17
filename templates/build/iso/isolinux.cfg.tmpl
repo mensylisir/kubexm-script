@@ -1,0 +1,62 @@
+{{ .comment -}}
+# KubeXM Offline Installer - BIOS Boot Configuration
+# Generated: {{ .generated }}
+# ISO Label: {{ .iso_label }}
+
+DEFAULT menu.c32
+PROMPT 0
+TIMEOUT {{ .timeout | default 600 }}
+ONTIMEOUT install
+
+MENU TITLE KubeXM Kubernetes Installer {{ .k8s_version }}
+MENU COLOR border       30;44   #40ffffff #a0000000 std
+MENU COLOR title        1;36;44 #9033ccff #a0000000 std
+MENU COLOR sel          7;37;40 #e0ffffff #20ffffff all
+MENU COLOR unsel        37;44   #50ffffff #a0000000 std
+MENU COLOR hotkey       1;34;44 #e0ffffff #a0000000 std
+MENU COLOR tabmsg       31;37   #30ffffff #a0000000 std
+
+LABEL install
+    MENU LABEL ^1. Install KubeXM Kubernetes Cluster ({{ .k8s_type }})
+    MENU DEFAULT
+    KERNEL vmlinuz
+    APPEND initrd=initrd.img inst.stage2=hd:LABEL={{ .iso_label }} quiet ks=file:/ks.cfg
+
+LABEL text
+    MENU LABEL ^2. Install in Text Mode
+    KERNEL vmlinuz
+    APPEND initrd=initrd.img inst.stage2=hd:LABEL={{ .iso_label }} text
+
+LABEL shell
+    MENU LABEL ^3. Start Shell for Manual Installation
+    KERNEL vmlinuz
+    APPEND initrd=initrd.img inst.stage2=hd:LABEL={{ .iso_label }} inst.shell
+
+LABEL rescue
+    MENU LABEL ^4. Rescue Mode
+    KERNEL vmlinuz
+    APPEND initrd=initrd.img inst.stage2=hd:LABEL={{ .iso_label }} rescue
+
+LABEL vesa
+    MENU LABEL ^5. Install with Basic Video Driver
+    KERNEL vmlinuz
+    APPEND initrd=initrd.img inst.stage2=hd:LABEL={{ .iso_label }} xdriver=vesa nomodeset
+
+LABEL local
+    MENU LABEL ^6. Boot from Local Drive
+    LOCALBOOT 0
+
+MENU SEPARATOR
+
+DISPLAY message.txt
+PROMPT 1
+F1 f1.txt
+F2 f2.txt
+F3 f3.txt
+F4 f4.txt
+F5 f5.txt
+F6 f6.txt
+F7 f7.txt
+F8 f8.txt
+F9 f9.txt
+F10 f10.txt

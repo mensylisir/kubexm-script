@@ -1,0 +1,27 @@
+# ==============================================================================
+# Kubelet Service Template for Binary Deployment
+# ==============================================================================
+# Generated from template - Do not edit manually
+# Cluster: ${CLUSTER_NAME}
+# Node: ${NODE_NAME}
+# ==============================================================================
+
+[Unit]
+Description=Kubernetes Kubelet
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+
+[Service]
+WorkingDirectory=/var/lib/kubelet
+ExecStartPre=/bin/mount -o remount,rw '/sys/fs/cgroup'
+ExecStart=/usr/local/bin/kubelet \
+  --config=/var/lib/kubelet/config.yaml \
+  --container-runtime-endpoint=${CRI_SOCKET} \
+  --hostname-override=${NODE_NAME} \
+  --kubeconfig=/etc/kubernetes/kubelet.kubeconfig \
+  --root-dir=/var/lib/kubelet \
+  --v=2
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

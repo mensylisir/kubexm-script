@@ -1,0 +1,24 @@
+[Unit]
+Description=Etcd Server
+Documentation=https://github.com/etcd-io/etcd
+After=network.target
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+WorkingDirectory=${ETCD_DATA_DIR}
+ExecStart=/usr/local/bin/etcd --config-file /etc/etcd/etcd.config.yml
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+# 安全加固
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=${ETCD_DATA_DIR}
+ReadWritePaths=/etc/etcd
+
+[Install]
+WantedBy=multi-user.target

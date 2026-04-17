@@ -1,0 +1,34 @@
+# KubeXM Build Container - Fedora 39
+# Purpose: Build RPM packages and local repository for Fedora 39
+
+FROM fedora:39
+
+LABEL maintainer="KubeXM Team"
+LABEL description="Fedora 39 build environment for KubeXM offline packages"
+LABEL os.type="fedora"
+LABEL os.version="39"
+LABEL pkg.manager="dnf"
+
+# Install build tools
+RUN dnf install -y \
+    dnf-plugins-core \
+    createrepo_c \
+    rpm-build \
+    wget \
+    curl \
+    tar \
+    gzip \
+    xz \
+    && dnf clean all
+
+# Create build directories
+RUN mkdir -p /build/packages /build/repo /build/output
+
+WORKDIR /build
+
+# Copy build scripts
+COPY containers/scripts/build-rpm.sh /build-rpm.sh
+RUN chmod +x /build-rpm.sh
+
+# Default command
+CMD ["/bin/bash"]

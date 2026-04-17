@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+step::lb.internal.nginx.systemd.copy.config::check() {
+  source "${KUBEXM_ROOT}/internal/step/common/checks.sh"
+  if step::check::remote_file_exists "${KUBEXM_HOST}" "/etc/nginx/nginx.conf"; then
+    return 0  # already exists, skip
+  fi
+  return 1  # need to copy
+}
+
+step::lb.internal.nginx.systemd.copy.config::run() {
+  local ctx="$1"
+  shift
+  local cluster_name="${KUBEXM_CLUSTER_NAME:-}"
+  local arg
+  for arg in "$@"; do
+    case "${arg}" in
+      --cluster=*) cluster_name="${arg#*=}" ;;
+    esac
+  done
+  if [[ -z "${cluster_name}" ]]; then
+    echo "missing required --cluster for create cluster" >&2
+    return 2
+  fi
+  export KUBEXM_CLUSTER_NAME="${cluster_name}"
+
+  : "${KUBEXM_ROOT:?KUBEXM_ROOT is required}"
+  source "${KUBEXM_ROOT}/internal/logger/log.sh"
+  source "${KUBEXM_ROOT}/internal/config/config.sh"
+  source "${KUBEXM_ROOT}/internal/runner/runner.sh"
+
+  local node_name=""
+  local node
+  for node in $(config::get_all_host_names); do
+    local node_ip
+    node_ip=$(config::get_host_param "${node}" "address")
+    if [[ "${node_ip}" == "${KUBEXM_HOST}" ]]; then
+      node_name="${node}"
+      break
+    fi
+  done
+  if [[ -z "${node_name}" ]]; then
+    node_name="${KUBEXM_HOST}"
+  fi
+
+  local cfg_file
+  cfg_file="${KUBEXM_ROOT}/packages/${cluster_name}/${node_name}/loadbalancer/internal-nginx-systemd/nginx.conf"
+  if [[ ! -f "${cfg_file}" ]]; then
+    log::error "Missing nginx config: ${cfg_file}"
+    return 1
+  fi
+
+  runner::remote_copy_file "${cfg_file}" "/etc/nginx/nginx.conf"
+}
+
+step::lb.internal.nginx.systemd.copy.config::rollback() { return 0; }
+
+step::lb.internal.nginx.systemd.copy.config::targets() {
+  : "${KUBEXM_ROOT:?KUBEXM_ROOT is required}"
+  source "${KUBEXM_ROOT}/internal/utils/targets.sh"
+  targets::for_workers
+}
+# Alias for static pod mode
+step::lb.internal.nginx.static.copy.config::check() { step::lb.internal.nginx.systemd.copy.config::check "$@"; }
+step::lb.internal.nginx.static.copy.config::run() { step::lb.internal.nginx.systemd.copy.config::run "$@"; }
+step::lb.internal.nginx.static.copy.config::rollback() { step::lb.internal.nginx.systemd.copy.config::rollback "$@"; }
+step::lb.internal.nginx.static.copy.config::targets() { step::lb.internal.nginx.systemd.copy.config::targets "$@"; }

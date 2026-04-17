@@ -1,0 +1,37 @@
+# KubeXM Build Container - CentOS 8 Stream
+# Purpose: Build RPM packages and local repository for CentOS 8
+
+FROM quay.io/centos/centos:stream8
+
+LABEL maintainer="KubeXM Team"
+LABEL description="CentOS 8 Stream build environment for KubeXM offline packages"
+LABEL os.type="centos"
+LABEL os.version="8"
+LABEL pkg.manager="dnf"
+
+# Install EPEL repository
+RUN dnf install -y epel-release
+
+# Install build tools
+RUN dnf install -y \
+    dnf-utils \
+    createrepo_c \
+    rpm-build \
+    wget \
+    curl \
+    tar \
+    gzip \
+    xz \
+    && dnf clean all
+
+# Create build directories
+RUN mkdir -p /build/packages /build/repo /build/output
+
+WORKDIR /build
+
+# Copy build scripts
+COPY scripts/build-rpm.sh /build/
+RUN chmod +x /build/build-rpm.sh
+
+# Default command
+CMD ["/bin/bash"]

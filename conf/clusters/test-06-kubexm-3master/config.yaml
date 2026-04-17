@@ -1,0 +1,36 @@
+# ==============================================================================
+# 测试配置 06 - kubexm 三节点
+# ==============================================================================
+# 说明：kubernetes和etcd都使用二进制部署，三节点无需LB
+# ==============================================================================
+
+apiVersion: kubexm.io/v1
+kind: Config
+metadata:
+  name: test-06-kubexm-3master
+spec:
+  mode: offline
+  arch:
+    - amd64
+  kubernetes:
+    type: kubexm
+    version: v1.32.4
+    service_cidr: 10.96.0.0/12
+    pod_cidr: 10.244.0.0/16
+    cluster_domain: cluster.local
+
+  etcd:
+    type: kubexm
+    data_dir: /var/lib/etcd
+
+  runtime:
+    type: containerd
+    version: v1.7.13
+    cgroup_driver: systemd
+
+  network:
+    plugin: calico
+    interface: "eth.*"
+
+  logging:
+    level: info

@@ -1,0 +1,26 @@
+[Unit]
+Description=Keepalived Load Balancer
+Documentation=https://keepalived.readthedocs.io/
+After=network-online.target
+Wants=network-online.target systemd-networkd.service
+ConditionFileNotEmpty={{ .config_file | default "/etc/keepalived/keepalived.conf" }}
+
+[Service]
+Type=forking
+ExecStart={{ .keepalived_path | default "/usr/sbin/keepalived" }} -f {{ .config_file | default "/etc/keepalived/keepalived.conf" }} -D
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s TERM $MAINPID
+KillMode=process
+PIDFile={{ .pid_file | default "/var/run/keepalived.pid" }}
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+StartLimitInterval=0
+
+# Resource limits
+MemoryMax={{ .memory_max | default "256M" }}
+CPUQuota={{ .cpu_quota | default "50%" }}
+
+[Install]
+WantedBy=multi-user.target

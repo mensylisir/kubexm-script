@@ -1,0 +1,9 @@
+{{ .comment -}}
+# KubeXM Local Repository Configuration
+# Generated: {{ .generated }}
+# OS: {{ .os_id }} {{ .os_version }}
+
+deb [trusted=yes] {{ .repo_url }} ./
+
+# Uncomment to enable source packages
+# deb-src [trusted=yes] {{ .repo_url }} ./

@@ -1,0 +1,42 @@
+{
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "100m",
+    "max-file": "10"
+  },
+  "storage-driver": "overlay2",
+  "registry-mirrors": [
+    {{- if .RegistryMirrors }}
+    {{- range $index, $mirror := .RegistryMirrors }}
+    {{- if $index }},{{- end }}
+    "{{ $mirror.endpoint }}"
+    {{- end }}
+    {{- else }}
+    "https://registry.docker-cn.com",
+    "https://docker.mirrors.ustc.edu.cn"
+    {{- end }}
+  ],
+  "insecure-registries": [
+    {{- if .InsecureRegistries }}
+    {{- range $index, $registry := .InsecureRegistries }}
+    {{- if $index }},{{- end }}
+    "{{ $registry }}"
+    {{- end }}
+    {{- end }}
+  ],
+  "live-restore": true,
+  "userland-proxy": false,
+  "default-ulimits": {
+    "nofile": {
+      "Name": "nofile",
+      "Hard": 64000,
+      "Soft": 64000
+    },
+    "nproc": {
+      "Name": "nproc",
+      "Hard": 64000,
+      "Soft": 64000
+    }
+  }
+}

@@ -1,0 +1,76 @@
+# ==============================================================================
+# 测试配置 36 - kubexm 高可用三 master
+# ==============================================================================
+# 说明：kubexm二进制部署，高可用三节点集群
+# ==============================================================================
+
+apiVersion: kubexm.io/v1
+kind: Config
+metadata:
+  name: test-36-kubexm-ha-3master
+spec:
+  mode: offline
+  arch:
+    - amd64
+  kubernetes:
+    type: kubexm
+    version: v1.32.4
+    service_cidr: 10.96.0.0/12
+    pod_cidr: 10.244.0.0/16
+    cluster_domain: cluster.local
+
+  etcd:
+    type: kubexm
+    data_dir: /var/lib/etcd
+
+  runtime:
+    type: containerd
+    version: v1.7.13
+    cgroup_driver: systemd
+
+  network:
+    plugin: calico
+    interface: "eth.*"
+
+  loadbalancer:
+    enabled: true
+    mode: external
+    type: kubexm-kh
+    vip: 192.168.1.100
+    interface: eth0
+
+    external:
+      keepalived:
+        router_id: 51
+        priority: 100
+        auth_pass: "kubexm_pass"
+      haproxy:
+        stats_port: 9000
+        stats_user: admin
+        stats_password: admin
+
+  addons:
+    metrics_server:
+      enabled: true
+
+    nodelocaldns:
+      enabled: true
+
+    ingress_controller:
+      enabled: true
+      type: nginx
+      version: v1.9.4
+      host_network: true
+
+  certificates:
+    auto_renew:
+      enabled: true
+
+  backup:
+    etcd:
+      enabled: true
+      schedule: "0 2 * * *"
+      retention_days: 7
+
+  logging:
+    level: info

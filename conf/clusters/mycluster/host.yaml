@@ -1,0 +1,13 @@
+apiVersion: kubexm.io/v1
+kind: Host
+metadata:
+  name: mycluster
+spec:
+  hosts:
+    - {name: master-01, address: 192.168.1.10, user: root}
+    - {name: worker-01, address: 192.168.1.11, user: root}
+  roleGroups:
+    etcd: [master-01]
+    control-plane: [master-01]
+    worker: [worker-01]
+    registry: [master-01]

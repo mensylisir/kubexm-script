@@ -1,0 +1,15 @@
+[Unit]
+Description=Kubernetes Certificate Renewal Check
+After=kubelet.service
+
+[Service]
+Type=oneshot
+Environment=CERT_RENEW_DAYS_BEFORE=${CERT_RENEW_DAYS_BEFORE:-30}
+Environment=PKI_DIR=${PKI_DIR:-/etc/kubernetes/pki}
+Environment=KUBEXM_CLUSTER_NAME=${KUBEXM_CLUSTER_NAME:-}
+ExecStart=/usr/local/bin/kubexm-cert-check.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
